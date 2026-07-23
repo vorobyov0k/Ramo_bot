@@ -50,6 +50,9 @@ from bot.utils.tg_helpers import safe_edit
 router = Router()
 logger = logging.getLogger(__name__)
 
+# ID карточек журнала чек-листов, отправленных через answer() — per user_id
+_cl_journal_cards: dict[int, list[int]] = {}
+
 
 # ────────────────────────────────────────────────────────────────────────────
 #  Фильтр: админ/менеджер/pm (режим модерации)
@@ -861,6 +864,15 @@ def _card_kb(execution_id: str, expanded: bool) -> InlineKeyboardMarkup:
 
 @router.callback_query(F.data == "admin:log_checklists")
 async def admin_log_checklists(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+
+    # Удаляем карточки от предыдущего открытия (если были)
+    for mid in _cl_journal_cards.pop(user_id, []):
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, mid)
+        except Exception:
+            pass
+
     records = await get_recent_checklists(limit=8)
 
     # Верхнее сообщение-заголовок (сама навигация журнала)
@@ -869,19 +881,43 @@ async def admin_log_checklists(callback: types.CallbackQuery):
         + (f"Последние <b>{len(records)}</b> — карточками ниже 👇"
            if records else "<i>Записей пока нет.</i>")
     )
-    await safe_edit(callback, header, _back_btn("admin:logs", "← К журналам"))
+    await safe_edit(callback, header, _back_btn("admin:cl_journal_back", "← К журналам"))
     await callback.answer()
 
     if not records:
         return
 
     users = {u.telegram_id: u for u in await get_all_users()}
+    card_ids = []
     for r in records:
-        await callback.message.answer(
+        msg = await callback.message.answer(
             _cl_card_text(r, users.get(r.user_id)),
             reply_markup=_card_kb(r.execution_id, expanded=False),
             parse_mode="HTML",
         )
+        card_ids.append(msg.message_id)
+    _cl_journal_cards[user_id] = card_ids
+
+
+@router.callback_query(F.data == "admin:cl_journal_back")
+async def admin_cl_journal_back(callback: types.CallbackQuery):
+    """Назад из журнала чек-листов — удаляет карточки, возвращает в меню журналов."""
+    user_id = callback.from_user.id
+    chat_id = callback.message.chat.id
+    for mid in _cl_journal_cards.pop(user_id, []):
+        try:
+            await callback.bot.delete_message(chat_id, mid)
+        except Exception:
+            pass
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Выполненные чек-листы", callback_data="admin:log_checklists")],
+        [InlineKeyboardButton(text="🆘 Инциденты",             callback_data="admin:log_incidents")],
+        [InlineKeyboardButton(text="🔄 Передачи смен",         callback_data="admin:log_handovers")],
+        [_back_row("admin:panel")[0]],
+    ])
+    await safe_edit(callback, "📊 <b>Журналы</b>\n\nВыберите раздел:",
+                    reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("admin:clx:"))
