@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAMO Bot — Релиз v1.0</title>
+<style>
+  :root{
+    --bg:#faf7f2; --surface:#ffffff; --surface-2:#f3ede3;
+    --ink:#241f1a; --ink-soft:#5c5348; --line:#e5dccd;
+    --accent:#b8722c; --accent-soft:#e9c9a3; --accent-ink:#7a4a17;
+    --green:#3f7d4f; --green-bg:#e5f0e6;
+    --amber:#c98a1e; --amber-bg:#f6ead0;
+    --shadow:0 1px 2px rgba(36,31,26,.06),0 8px 24px rgba(36,31,26,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#17140f; --surface:#211d16; --surface-2:#2a251c;
+      --ink:#f2ece1; --ink-soft:#b6ab99; --line:#352f24;
+      --accent:#e0994f; --accent-soft:#5a4023; --accent-ink:#f0c491;
+      --green:#7fc48d; --green-bg:#1f2e21;
+      --amber:#e6b452; --amber-bg:#33290f;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#17140f; --surface:#211d16; --surface-2:#2a251c;
+    --ink:#f2ece1; --ink-soft:#b6ab99; --line:#352f24;
+    --accent:#e0994f; --accent-soft:#5a4023; --accent-ink:#f0c491;
+    --green:#7fc48d; --green-bg:#1f2e21; --amber:#e6b452; --amber-bg:#33290f;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"]{
+    --bg:#faf7f2; --surface:#ffffff; --surface-2:#f3ede3;
+    --ink:#241f1a; --ink-soft:#5c5348; --line:#e5dccd;
+    --accent:#b8722c; --accent-soft:#e9c9a3; --accent-ink:#7a4a17;
+    --green:#3f7d4f; --green-bg:#e5f0e6; --amber:#c98a1e; --amber-bg:#f6ead0;
+    --shadow:0 1px 2px rgba(36,31,26,.06),0 8px 24px rgba(36,31,26,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+    line-height:1.6;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:860px;margin:0 auto;padding:0 24px}
+
+  /* Hero */
+  header{
+    background:
+      radial-gradient(120% 120% at 90% -10%,var(--accent-soft) 0%,transparent 55%),
+      var(--surface);
+    border-bottom:1px solid var(--line);
+    padding:72px 0 56px;
+  }
+  .badge{
+    display:inline-flex;align-items:center;gap:8px;
+    background:var(--accent);color:#fff;font-weight:600;
+    font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+    padding:6px 14px;border-radius:100px;
+  }
+  h1{
+    font-size:clamp(38px,7vw,64px);line-height:1.03;letter-spacing:-.02em;
+    margin:20px 0 14px;text-wrap:balance;font-weight:800;
+  }
+  .lede{font-size:clamp(17px,2.4vw,21px);color:var(--ink-soft);max-width:60ch}
+  .meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+  .chip{
+    background:var(--surface-2);border:1px solid var(--line);
+    padding:8px 14px;border-radius:10px;font-size:14px;font-weight:500;
+  }
+  .chip b{color:var(--accent-ink)}
+
+  section{padding:52px 0;border-bottom:1px solid var(--line)}
+  .eyebrow{
+    font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:10px;
+  }
+  h2{font-size:clamp(24px,4vw,32px);letter-spacing:-.01em;margin-bottom:8px;font-weight:750}
+  .sub{color:var(--ink-soft);margin-bottom:28px;max-width:62ch}
+
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+  .card{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:16px;padding:22px;box-shadow:var(--shadow);
+  }
+  .card .ico{font-size:24px;line-height:1}
+  .card h3{font-size:17px;margin:12px 0 6px;font-weight:700}
+  .card p{font-size:14px;color:var(--ink-soft)}
+
+  /* changelog */
+  .log{display:flex;flex-direction:column;gap:14px}
+  .row{
+    display:grid;grid-template-columns:120px 1fr;gap:18px;
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:18px 20px;align-items:start;
+  }
+  .tag{
+    justify-self:start;font-size:12px;font-weight:700;padding:4px 11px;
+    border-radius:100px;white-space:nowrap;
+  }
+  .tag.new{background:var(--green-bg);color:var(--green)}
+  .tag.fix{background:var(--amber-bg);color:var(--amber)}
+  .tag.chg{background:var(--accent-soft);color:var(--accent-ink)}
+  .row h4{font-size:15px;margin-bottom:3px;font-weight:650}
+  .row p{font-size:13.5px;color:var(--ink-soft)}
+  @media(max-width:560px){.row{grid-template-columns:1fr;gap:8px}}
+
+  .stack{display:flex;flex-direction:column;gap:10px}
+  .li{display:flex;gap:12px;align-items:baseline;font-size:15px}
+  .li .k{color:var(--green);font-weight:800;flex:none}
+
+  .callout{
+    background:var(--surface-2);border:1px solid var(--line);
+    border-left:3px solid var(--accent);border-radius:12px;
+    padding:18px 20px;font-size:14.5px;color:var(--ink-soft);
+  }
+  .callout b{color:var(--ink)}
+
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  .tw{overflow-x:auto;border:1px solid var(--line);border-radius:14px}
+  th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line)}
+  th{background:var(--surface-2);font-weight:700;font-size:12.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-soft)}
+  tr:last-child td{border-bottom:none}
+  td b{color:var(--accent-ink)}
+  code{
+    background:var(--surface-2);border:1px solid var(--line);
+    padding:1px 6px;border-radius:6px;font-size:.88em;
+    font-family:"Cascadia Code",Consolas,monospace;
+  }
+  footer{padding:44px 0 64px;color:var(--ink-soft);font-size:13.5px;text-align:center}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <span class="badge">● Релиз 1.0</span>
+    <h1>RAMO</h1>
+    <p class="lede">Корпоративная база знаний ресторана в Telegram. Меню, чек-листы, задачи, инструкции и передача смены — в одном боте, всегда под рукой у команды.</p>
+    <div class="meta">
+      <span class="chip"><b>Платформа:</b> Telegram · aiogram v3</span>
+      <span class="chip"><b>Хранилище:</b> SQLite</span>
+      <span class="chip"><b>Дата:</b> 23.07.2026</span>
+      <span class="chip"><b>Статус:</b> Готов к работе</span>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Что это</p>
+    <h2>Один бот вместо десятка чатов и распечаток</h2>
+    <p class="sub">RAMO собирает всё, что нужно смене, в структурированное меню с ролевым доступом. Сотрудник видит только то, что относится к его работе; менеджеры и модераторы — панель управления.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">📖</div><h3>База знаний</h3><p>Инструкции, стандарты, описания должностей, FAQ и рецепты коктейлей.</p></div>
+      <div class="card"><div class="ico">🍽️</div><h3>Меню заведения</h3><p>55+ позиций кухни и бара с фото, составом и аллергенами.</p></div>
+      <div class="card"><div class="ico">✅</div><h3>Чек-листы</h3><p>Открытие, закрытие, бар, зал, уборка, кухня — с фиксацией выполнения.</p></div>
+      <div class="card"><div class="ico">🗂️</div><h3>Задачи</h3><p>Постановка, назначение, дедлайны, комментарии и самофиксация.</p></div>
+      <div class="card"><div class="ico">🔄</div><h3>Передача смены</h3><p>Заметки с фото, важностью и тегами между сменами.</p></div>
+      <div class="card"><div class="ico">📣</div><h3>Рассылки</h3><p>Текст, акции и события — по всей команде или по конкретной должности.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Доступ</p>
+    <h2>Роли и должности</h2>
+    <p class="sub">В v1.0 разделены две вещи: <b>техническая роль</b> (права в боте) и <b>должность</b> (место человека в структуре кафе). Это ключевое решение релиза.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Роль в боте</th><th>Кто это</th><th>Права</th></tr></thead>
+        <tbody>
+          <tr><td><b>Владелец</b></td><td>Собственник заведения</td><td>Полный доступ + модерация всегда</td></tr>
+          <tr><td><b>Админ</b></td><td>Техническая роль</td><td>Режим модерации, админ-панель</td></tr>
+          <tr><td><b>Проект-менеджер</b></td><td>PM</td><td>Режим модерации, управление</td></tr>
+          <tr><td><b>Пользователь</b></td><td>Сотрудник смены</td><td>База знаний по своей должности</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top:16px">
+      <b>Важно:</b> должность «Менеджер» (зал) — это операционное управление сменой, но <b>без</b> модерации бота. Модерация — только у Админа, PM и Владельца.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Изменения</p>
+    <h2>Что вошло в v1.0</h2>
+    <p class="sub">Ключевые пункты последних сессий разработки.</p>
+    <div class="log">
+      <div class="row"><span class="tag chg">Модель</span><div><h4>Финальная модель прав</h4><p>Роль <code>manager</code> удалена как техническая. Разделены роль и должность, единый источник прав в <code>positions.py</code>.</p></div></div>
+      <div class="row"><span class="tag new">Ново</span><div><h4>Управление пользователями</h4><p>Создание сотрудника через форму (ФИО → должность) и удаление с двойным подтверждением.</p></div></div>
+      <div class="row"><span class="tag new">Ново</span><div><h4>Рассылки v2</h4><p>Три типа: свой текст, готовая акция из базы, предстоящее событие. С выбором аудитории.</p></div></div>
+      <div class="row"><span class="tag new">Ново</span><div><h4>Журнал чек-листов</h4><p>Мини-карточки с прогресс-баром и разворачиваемым отчётом по пунктам и зонам.</p></div></div>
+      <div class="row"><span class="tag new">Ново</span><div><h4>Фото в меню</h4><p>Загрузка фотографий блюд и напитков через админа, показ в карточке позиции.</p></div></div>
+      <div class="row"><span class="tag fix">Фикс</span><div><h4>Устранены зависания кнопок</h4><p>Единая защита <code>safe_edit</code> + глобальный обработчик ошибок — «часики» на кнопках больше не залипают.</p></div></div>
+      <div class="row"><span class="tag fix">Фикс</span><div><h4>Карточки задач открываются</h4><p>Исправлено обращение к полю пользователя (<code>telegram_id</code>) — карточки задач снова работают.</p></div></div>
+      <div class="row"><span class="tag fix">Фикс</span><div><h4>Пути к базам данных</h4><p>Пути привязаны к корню проекта — бот стартует из любого рабочего каталога.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Под капотом</p>
+    <h2>Техническая надёжность</h2>
+    <div class="stack">
+      <div class="li"><span class="k">→</span><div>11 роутеров подключены через единую точку входа; корневой <code>main.py</code> — тонкая обёртка.</div></div>
+      <div class="li"><span class="k">→</span><div>Идемпотентные миграции схемы: <code>ALTER TABLE</code> безопасны при каждом запуске.</div></div>
+      <div class="li"><span class="k">→</span><div>Глобальный обработчик ошибок логирует трейсбек и всегда снимает индикатор загрузки.</div></div>
+      <div class="li"><span class="k">→</span><div>Планировщик задач с корректной таймзоной <code>Europe/Moscow</code>.</div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Дальше</p>
+    <h2>Дорожная карта</h2>
+    <div class="grid">
+      <div class="card"><div class="ico">🚀</div><h3>Деплой на VPS</h3><p>Вынести бота на постоянный хост.</p></div>
+      <div class="card"><div class="ico">🎓</div><h3>Онбординг</h3><p>Прогресс адаптации для новых сотрудников.</p></div>
+      <div class="card"><div class="ico">🖼️</div><h3>Фото инструкций</h3><p>Иллюстрации к инструкциям по должностям.</p></div>
+      <div class="card"><div class="ico">📝</div><h3>Описания блюд</h3><p>Поле описания в карточке позиции меню.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">RAMO Bot · Релиз v1.0 · 23 июля 2026 · Внутренний документ</div>
+</footer>
+
+<script>
+  const r=document.documentElement;
+  new MutationObserver(()=>{}).observe(r,{attributes:true,attributeFilter:['data-theme']});
+</script>
+</body>
+</html>
