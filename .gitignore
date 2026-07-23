@@ -36,6 +36,7 @@ env/
 credentials.json
 client_secret.json
 token.json
+token_drive.json
 *.pem
 *.key
 
