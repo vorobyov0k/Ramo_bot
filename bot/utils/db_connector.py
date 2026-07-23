@@ -50,6 +50,7 @@ class ChecklistExecution(Base):
     verified_by = Column(Integer, ForeignKey("bot_users.telegram_id"), nullable=True)
     dispute_reason = Column(Text, nullable=True)
     dispute_resolution = Column(Text, nullable=True)
+    archived = Column(Boolean, default=False)
 
 
 class HandoverLog(Base):
@@ -260,6 +261,7 @@ async def init_db():
             # handover_logs — приём смены
             "ALTER TABLE handover_logs ADD COLUMN accepted_by INTEGER REFERENCES bot_users(telegram_id)",
             "ALTER TABLE handover_logs ADD COLUMN accepted_at DATETIME",
+            "ALTER TABLE checklist_executions ADD COLUMN archived BOOLEAN DEFAULT 0",
         ]:
             try:
                 await conn.execute(text(col_sql))
@@ -543,6 +545,43 @@ async def get_recent_checklists(limit: int = 20) -> List[ChecklistExecution]:
     async with async_session() as session:
         result = await session.execute(
             select(ChecklistExecution)
+            .where(ChecklistExecution.archived == False)
+            .order_by(ChecklistExecution.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+
+async def archive_checklist(execution_id: str) -> bool:
+    async with async_session() as session:
+        ex = await session.get(ChecklistExecution, execution_id)
+        if not ex:
+            return False
+        ex.archived = True
+        await session.commit()
+        return True
+
+
+async def archive_all_checklists() -> int:
+    """Архивирует все неархивированные чек-листы. Возвращает кол-во записей."""
+    from sqlalchemy import select
+    async with async_session() as session:
+        result = await session.execute(
+            select(ChecklistExecution).where(ChecklistExecution.archived == False)
+        )
+        rows = list(result.scalars().all())
+        for ex in rows:
+            ex.archived = True
+        await session.commit()
+        return len(rows)
+
+
+async def get_archived_checklists(limit: int = 50) -> List[ChecklistExecution]:
+    from sqlalchemy import select
+    async with async_session() as session:
+        result = await session.execute(
+            select(ChecklistExecution)
+            .where(ChecklistExecution.archived == True)
             .order_by(ChecklistExecution.created_at.desc())
             .limit(limit)
         )

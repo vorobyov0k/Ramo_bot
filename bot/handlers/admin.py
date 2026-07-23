@@ -22,6 +22,9 @@ from bot.utils.db_connector import (
     delete_user,
     get_recent_checklists,
     get_checklist_execution,
+    archive_checklist,
+    archive_all_checklists,
+    get_archived_checklists,
     get_recent_incidents,
     get_recent_handovers,
     get_events_by_type,
@@ -856,32 +859,39 @@ def _cl_report_text(ex, user) -> str:
 
 def _card_kb(execution_id: str, expanded: bool) -> InlineKeyboardMarkup:
     if expanded:
-        btn = InlineKeyboardButton(text="← Свернуть", callback_data=f"admin:clc:{execution_id}")
+        toggle_btn = InlineKeyboardButton(text="← Свернуть", callback_data=f"admin:clc:{execution_id}")
     else:
-        btn = InlineKeyboardButton(text="📄 Открыть отчёт", callback_data=f"admin:clx:{execution_id}")
-    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
+        toggle_btn = InlineKeyboardButton(text="📄 Открыть отчёт", callback_data=f"admin:clx:{execution_id}")
+    archive_btn = InlineKeyboardButton(text="🗑 Архивировать", callback_data=f"admin:cla:{execution_id}")
+    return InlineKeyboardMarkup(inline_keyboard=[[toggle_btn], [archive_btn]])
 
 
-@router.callback_query(F.data == "admin:log_checklists")
-async def admin_log_checklists(callback: types.CallbackQuery):
+async def _show_cl_journal(callback: types.CallbackQuery):
+    """Общая логика отображения активного журнала чек-листов."""
     user_id = callback.from_user.id
 
-    # Удаляем карточки от предыдущего открытия (если были)
+    # Удаляем карточки от предыдущего открытия
     for mid in _cl_journal_cards.pop(user_id, []):
         try:
             await callback.bot.delete_message(callback.message.chat.id, mid)
         except Exception:
             pass
 
-    records = await get_recent_checklists(limit=8)
+    records = await get_recent_checklists(limit=10)
+    count = len(records)
 
-    # Верхнее сообщение-заголовок (сама навигация журнала)
-    header = (
+    header_text = (
         "✅ <b>Выполненные чек-листы</b>\n\n"
-        + (f"Последние <b>{len(records)}</b> — карточками ниже 👇"
-           if records else "<i>Записей пока нет.</i>")
+        + (f"Активных записей: <b>{count}</b> — карточками ниже 👇"
+           if records else "<i>Активных записей нет.</i>\nВсе чек-листы архивированы.")
     )
-    await safe_edit(callback, header, _back_btn("admin:cl_journal_back", "← К журналам"))
+    header_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📦 Завершить смену (архивировать все)",
+                              callback_data="admin:close_shift_confirm")],
+        [InlineKeyboardButton(text="📂 Архив смен", callback_data="admin:log_cl_archive")],
+        [InlineKeyboardButton(text="← К журналам", callback_data="admin:cl_journal_back")],
+    ])
+    await safe_edit(callback, header_text, header_kb)
     await callback.answer()
 
     if not records:
@@ -897,6 +907,11 @@ async def admin_log_checklists(callback: types.CallbackQuery):
         )
         card_ids.append(msg.message_id)
     _cl_journal_cards[user_id] = card_ids
+
+
+@router.callback_query(F.data == "admin:log_checklists")
+async def admin_log_checklists(callback: types.CallbackQuery):
+    await _show_cl_journal(callback)
 
 
 @router.callback_query(F.data == "admin:cl_journal_back")
@@ -943,6 +958,129 @@ async def admin_cl_card_collapse(callback: types.CallbackQuery):
         return
     user = await get_user_by_telegram_id(ex.user_id)
     await safe_edit(callback, _cl_card_text(ex, user), _card_kb(execution_id, expanded=False))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:cla:"))
+async def admin_cl_card_archive(callback: types.CallbackQuery):
+    """Архивировать одну карточку и удалить её сообщение."""
+    execution_id = callback.data[len("admin:cla:"):]
+    ok = await archive_checklist(execution_id)
+    if not ok:
+        await callback.answer("Запись не найдена", show_alert=True)
+        return
+    # Удаляем сообщение-карточку
+    user_id = callback.from_user.id
+    msg_id = callback.message.message_id
+    _cl_journal_cards[user_id] = [
+        m for m in _cl_journal_cards.get(user_id, []) if m != msg_id
+    ]
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.answer("🗑 Архивировано")
+
+
+@router.callback_query(F.data == "admin:close_shift_confirm")
+async def admin_close_shift_confirm(callback: types.CallbackQuery):
+    """Показывает подтверждение перед архивированием всей смены."""
+    records = await get_recent_checklists(limit=100)
+    count = len(records)
+    if not count:
+        await callback.answer("Нет активных записей", show_alert=True)
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"✅ Да, архивировать ({count} записей)",
+                              callback_data="admin:close_shift_do")],
+        [InlineKeyboardButton(text="← Отмена", callback_data="admin:log_checklists")],
+    ])
+    await safe_edit(
+        callback,
+        f"📦 <b>Завершить смену?</b>\n\n"
+        f"Все <b>{count}</b> активных чек-листов уйдут в архив.\n"
+        f"Журнал будет очищен. Данные не удаляются — они будут в разделе 📂 Архив.",
+        kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:close_shift_do")
+async def admin_close_shift_do(callback: types.CallbackQuery):
+    """Архивирует все активные чек-листы и чистит журнал."""
+    user_id = callback.from_user.id
+    archived_count = await archive_all_checklists()
+
+    # Удаляем карточки из чата
+    for mid in _cl_journal_cards.pop(user_id, []):
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, mid)
+        except Exception:
+            pass
+
+    now_str = datetime.now().strftime("%d.%m.%Y %H:%M")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📂 Открыть архив", callback_data="admin:log_cl_archive")],
+        [InlineKeyboardButton(text="← К журналам",    callback_data="admin:cl_journal_back")],
+    ])
+    await safe_edit(
+        callback,
+        f"📦 <b>Смена закрыта</b>\n\n"
+        f"Архивировано записей: <b>{archived_count}</b>\n"
+        f"⏰ {now_str}\n\n"
+        f"Журнал очищен и готов к новой смене.",
+        kb,
+    )
+    await callback.answer("✅ Смена закрыта")
+
+
+@router.callback_query(F.data == "admin:log_cl_archive")
+async def admin_log_cl_archive(callback: types.CallbackQuery):
+    """Архив чек-листов — последние 50, сгруппированные по дате."""
+    records = await get_archived_checklists(limit=50)
+    if not records:
+        await safe_edit(
+            callback,
+            "📂 <b>Архив чек-листов</b>\n\n<i>Архив пуст.</i>",
+            _back_btn("admin:log_checklists", "← К журналу"),
+        )
+        await callback.answer()
+        return
+
+    users = {u.telegram_id: u for u in await get_all_users()}
+
+    # Группируем по дате (МСК UTC+3)
+    from datetime import timezone, timedelta
+    msk = timezone(timedelta(hours=3))
+    by_date: dict = {}
+    for r in records:
+        dt = r.created_at
+        if dt:
+            day = dt.replace(tzinfo=timezone.utc).astimezone(msk).strftime("%d.%m.%Y")
+        else:
+            day = "—"
+        by_date.setdefault(day, []).append(r)
+
+    lines = ["📂 <b>Архив чек-листов</b> (последние 50)\n"]
+    for day, recs in by_date.items():
+        lines.append(f"\n📅 <b>{day}</b>  ({len(recs)} записей)")
+        for r in recs:
+            u = users.get(r.user_id)
+            name = u.full_name if u else f"ID {r.user_id}"
+            t = r.created_at.replace(tzinfo=timezone.utc).astimezone(msk).strftime("%H:%M") if r.created_at else "—"
+            done = len(r.items or [])
+            label = _cl_label(r.checklist_type)
+            lines.append(f"  • {t} {label} — {name} ({done} ✅)")
+
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:4000] + "\n…"
+
+    await safe_edit(
+        callback, text,
+        _back_btn("admin:log_checklists", "← К журналу"),
+        parse_mode="HTML",
+    )
     await callback.answer()
 
 
