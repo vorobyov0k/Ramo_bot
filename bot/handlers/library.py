@@ -646,17 +646,26 @@ async def dish_detail(callback: types.CallbackQuery):
 
 @router.callback_query(F.data == "lib:bar")
 async def bar_menu_categories(callback: types.CallbackQuery):
-    """Категории меню бара."""
+    """Категории меню бара. Категории с общим group_name (например, стили
+    вина) схлопываются в один пункт-подменю."""
     from bot.utils.menu_db import get_categories
     cats = get_categories("bar")
     if not cats:
         await callback.answer("Меню бара не найдено", show_alert=True)
         return
 
-    buttons = [
-        [InlineKeyboardButton(text=cat["name"], callback_data=f"lib:bar_cat:{cat['name']}")]
-        for cat in cats
-    ]
+    buttons = []
+    seen_groups = set()
+    for cat in cats:
+        if cat["group_name"]:
+            if cat["group_name"] in seen_groups:
+                continue
+            seen_groups.add(cat["group_name"])
+            buttons.append([InlineKeyboardButton(
+                text=cat["group_name"], callback_data=f"lib:bar_group:{cat['group_name']}"
+            )])
+        else:
+            buttons.append([InlineKeyboardButton(text=cat["name"], callback_data=f"lib:bar_cat:{cat['name']}")])
     buttons.append(_back_row())
 
     await _edit_or_resend(
@@ -667,9 +676,34 @@ async def bar_menu_categories(callback: types.CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("lib:bar_group:"))
+async def bar_group_categories(callback: types.CallbackQuery):
+    """Стили внутри объединённой группы (например, «Вина» → игристые/белые/красные)."""
+    from bot.utils.menu_db import get_categories
+    group = callback.data[len("lib:bar_group:"):]
+    cats = [c for c in get_categories("bar") if c["group_name"] == group]
+    if not cats:
+        await callback.answer("Категория не найдена", show_alert=True)
+        return
+
+    buttons = [
+        [InlineKeyboardButton(text=cat["name"], callback_data=f"lib:bar_cat:{cat['name']}")]
+        for cat in cats
+    ]
+    buttons.append(_back_row("lib:bar"))
+
+    await _edit_or_resend(
+        callback.message,
+        f"🍷 <b>{group}</b>\n\nВыберите стиль:",
+        InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("lib:bar_cat:"))
 async def bar_category(callback: types.CallbackQuery):
     """Напитки в категории — отображаются как кнопки."""
+    from bot.utils.menu_db import get_categories
     category = callback.data[len("lib:bar_cat:"):]
     items = get_drinks_by_category(category)
     if not items:
@@ -688,7 +722,9 @@ async def bar_category(callback: types.CallbackQuery):
         label = f"{item['name']}{price_str} {tag_str}".strip()
         buttons.append([InlineKeyboardButton(text=label, callback_data=f"lib:drink:{item['id']}")])
 
-    buttons.append([InlineKeyboardButton(text="← К категориям", callback_data="lib:bar")])
+    cat_info = next((c for c in get_categories("bar") if c["name"] == category), None)
+    back_target = f"lib:bar_group:{cat_info['group_name']}" if cat_info and cat_info["group_name"] else "lib:bar"
+    buttons.append([InlineKeyboardButton(text="← К категориям", callback_data=back_target)])
 
     await _edit_or_resend(
         callback.message,

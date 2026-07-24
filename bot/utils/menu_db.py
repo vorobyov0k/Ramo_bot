@@ -17,6 +17,7 @@ def init_menu_db() -> None:
     for sql in [
         "ALTER TABLE dishes ADD COLUMN photo_id TEXT",
         "ALTER TABLE drinks ADD COLUMN photo_id TEXT",
+        "ALTER TABLE categories ADD COLUMN group_name TEXT",
     ]:
         try:
             c.execute(sql)
@@ -27,16 +28,21 @@ def init_menu_db() -> None:
 
 
 def get_categories(type_: str) -> List[dict]:
-    """Список категорий для кухни или бара: [{"id", "name"}, ...]."""
+    """Список категорий для кухни или бара: [{"id", "name", "group_name"}, ...].
+
+    group_name — если заполнено, категория входит в общую подгруппу
+    (например, стили вина внутри «Вина») и не должна показываться
+    как отдельный пункт верхнего уровня в клиентском меню.
+    """
     conn = sqlite3.connect(_MENU_DB)
     c = conn.cursor()
     c.execute(
-        "SELECT id, name FROM categories WHERE type=? ORDER BY sort_order, name",
+        "SELECT id, name, group_name FROM categories WHERE type=? ORDER BY sort_order, name",
         (type_,),
     )
     rows = c.fetchall()
     conn.close()
-    return [{"id": r[0], "name": r[1]} for r in rows]
+    return [{"id": r[0], "name": r[1], "group_name": r[2]} for r in rows]
 
 
 def get_dishes_by_category(category_name: str) -> List[dict]:
