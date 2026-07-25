@@ -12,6 +12,7 @@ from bot.utils.db_connector import (
     get_events_by_type,
     create_event,
     delete_event,
+    accept_booking,
 )
 from bot.states.forms import EventAddBookingState, EventAddAnnouncementState
 from bot.utils.positions import MANAGER_ROLES
@@ -85,22 +86,24 @@ async def events_menu(callback: types.CallbackQuery):
 #  Брони
 # ────────────────────────────────────────────────────────────────────────────
 
-@router.callback_query(F.data == "events:bookings")
-async def events_bookings(callback: types.CallbackQuery):
+async def _render_bookings(callback: types.CallbackQuery):
+    """Строит текст + клавиатуру со списком активных броней (с кнопкой приёма на каждую)."""
     events = await get_upcoming_events(event_type="booking", days=2)
 
     if not events:
         text = (
             "📋 <b>Брони на сегодня и завтра</b>\n\n"
-            "<i>Бронирований не найдено.</i>\n\n"
+            "<i>Активных броней нет.</i>\n\n"
             "Добавить бронь может менеджер/администратор."
         )
+        keyboard = _back_btn("menu:events", "← К событиям")
     else:
         now = datetime.utcnow()
         today_str = now.strftime("%d.%m")
         tomorrow_str = (now + timedelta(days=1)).strftime("%d.%m")
 
         lines = ["📋 <b>Брони на сегодня и завтра</b>\n"]
+        buttons = []
         for e in events:
             dt = e.event_date
             date_label = dt.strftime("%d.%m")
@@ -123,16 +126,63 @@ async def events_bookings(callback: types.CallbackQuery):
                 lines.append(f"   💬 {comment}")
             lines.append("")
 
-        text = "\n".join(lines)
-        if len(text) > 4000:
-            text = text[:4000] + "\n..."
+            label = f"✅ Приняли: {e.title} {time_str}"
+            buttons.append([InlineKeyboardButton(
+                text=label[:60], callback_data=f"events:accept:{e.event_id}",
+            )])
 
-    await callback.message.edit_text(
-        text,
-        reply_markup=_back_btn("menu:events", "← К событиям"),
-        parse_mode="HTML",
-    )
+        text = "\n".join(lines)
+        if len(text) > 3800:
+            text = text[:3800] + "\n..."
+
+        buttons.append(_back_row("menu:events", "← К событиям"))
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    return text, keyboard
+
+
+@router.callback_query(F.data == "events:bookings")
+async def events_bookings(callback: types.CallbackQuery):
+    text, keyboard = await _render_bookings(callback)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("events:accept:"))
+async def booking_accept(callback: types.CallbackQuery):
+    """Официант отмечает: гости пришли, бронь принята."""
+    event_id = callback.data[len("events:accept:"):]
+    user = await get_user_by_telegram_id(callback.from_user.id)
+    user_name = (user.full_name if user else None) or callback.from_user.full_name
+
+    event = await accept_booking(event_id, callback.from_user.id, user_name)
+    if not event:
+        await callback.answer("⚠️ Бронь уже обработана или не найдена", show_alert=True)
+        text, keyboard = await _render_bookings(callback)
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        return
+
+    await callback.answer("✅ Бронь отмечена как принятая")
+
+    if config.ADMIN_TELEGRAM_ID:
+        meta = event.meta or {}
+        try:
+            await callback.bot.send_message(
+                chat_id=config.ADMIN_TELEGRAM_ID,
+                text=(
+                    f"🔔 <b>Бронь принята</b>\n\n"
+                    f"📋 {event.title}\n"
+                    f"📅 {event.event_date.strftime('%d.%m.%Y %H:%M')}\n"
+                    f"👥 Гостей: {meta.get('guest_count', '?')}\n\n"
+                    f"👤 Принял: <b>{user_name}</b> (ID: <code>{callback.from_user.id}</code>)"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось уведомить модератора о принятой брони: {e}")
+
+    text, keyboard = await _render_bookings(callback)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 # ────────────────────────────────────────────────────────────────────────────

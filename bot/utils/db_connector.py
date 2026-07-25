@@ -480,6 +480,22 @@ async def delete_event(event_id: str) -> bool:
         return True
 
 
+async def accept_booking(event_id: str, user_id: int, user_name: str) -> Optional["Event"]:
+    """Отмечает бронь принятой (гости пришли) и убирает её из активного списка."""
+    async with async_session() as session:
+        event = await session.get(Event, event_id)
+        if not event or not event.is_active:
+            return None
+        meta = dict(event.meta or {})
+        meta["accepted_by"] = user_id
+        meta["accepted_by_name"] = user_name
+        meta["accepted_at"] = datetime.utcnow().isoformat()
+        event.meta = meta
+        event.is_active = False
+        await session.commit()
+        return event
+
+
 # ─── Admin CRUD ───
 
 async def get_all_users(status: Optional[str] = None) -> List[User]:
