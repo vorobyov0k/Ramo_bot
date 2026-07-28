@@ -118,7 +118,7 @@ async def change_role(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(RegistrationState.waiting_confirm, F.data == "reg:confirm")
 async def confirm_registration(callback: types.CallbackQuery, state: FSMContext):
-    """Шаг 3: Авто-регистрация и немедленный доступ."""
+    """Шаг 3: Заявка уходит на рассмотрение — доступ выдаёт администратор вручную."""
     logger.info(f"Callback confirm_registration")
 
     data = await state.get_data()
@@ -133,13 +133,13 @@ async def confirm_registration(callback: types.CallbackQuery, state: FSMContext)
         requested_role=role,
         position=position,
     )
-    await approve_user(callback.from_user.id, role=role, position=position)
 
-    from bot.utils.db_connector import get_user_by_telegram_id as _get_user
-    from bot.handlers.menu import build_home_screen
-    new_user = await _get_user(callback.from_user.id)
-    text, keyboard = await build_home_screen(new_user)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.edit_text(
+        "✅ <b>Заявка отправлена!</b>\n\n"
+        f"ФИО: <b>{fio}</b>\n\n"
+        "⏳ Ожидайте одобрения администратора — доступ откроется после этого.",
+        parse_mode="HTML",
+    )
 
     pos_info = POSITION_MAP.get(position)
     position_display = pos_info[0] if pos_info else position
@@ -160,21 +160,22 @@ async def fallback_reg(callback: types.CallbackQuery, state: FSMContext):
 
 
 async def notify_admin(bot, user_id: int, fio: str, role: str):
-    """Уведомление админу о новом сотруднике (авто-одобрен)."""
+    """Уведомление админу о новой заявке — ждёт решения."""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🚫 Заблокировать", callback_data=f"admin:reject:{user_id}"),
+            InlineKeyboardButton(text="✅ Одобрить", callback_data=f"admin:approve:{user_id}"),
+            InlineKeyboardButton(text="🚫 Отклонить", callback_data=f"admin:reject:{user_id}"),
         ],
     ])
 
     await bot.send_message(
         chat_id=config.ADMIN_TELEGRAM_ID,
         text=(
-            f"👤 <b>Новый сотрудник зарегистрировался</b>\n\n"
+            f"👤 <b>Новая заявка на регистрацию</b>\n\n"
             f"ФИО: <b>{fio}</b>\n"
             f"Должность: <b>{role}</b>\n"
             f"ID: <code>{user_id}</code>\n\n"
-            "Доступ выдан автоматически."
+            "Доступ пока не выдан — требуется одобрение."
         ),
         reply_markup=keyboard,
     )
