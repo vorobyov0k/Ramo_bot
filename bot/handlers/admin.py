@@ -113,6 +113,7 @@ async def admin_panel(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="📊 Журналы", callback_data="admin:logs")],
         [InlineKeyboardButton(text="✅ Чек-листы (редактор)", callback_data="admin:checklists")],
         [InlineKeyboardButton(text="📅 События (удаление)", callback_data="admin:events_mgmt")],
+        [InlineKeyboardButton(text="🌡 Кондиционеры/окна", callback_data="admin:climate_notice")],
         [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast")],
         [InlineKeyboardButton(text="📸 Фото меню", callback_data="admin:menu_photo")],
         [InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")],
@@ -121,6 +122,40 @@ async def admin_panel(callback: types.CallbackQuery):
         callback,
         "🔧 <b>Режим модерации RAMO</b>\n\nПанель управления: пользователи, чек-листы, события, рассылки.\n\nВыберите раздел:",
         keyboard,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:climate_notice")
+async def admin_climate_notice(callback: types.CallbackQuery, bot: Bot):
+    """Ручное оповещение зала про окна/кондиционеры — по текущей погоде."""
+    from bot.utils.task_reminders import send_manual_climate_notice
+    from bot.utils.db_connector import log_action
+
+    text, sent = await send_manual_climate_notice(bot)
+
+    if text is None:
+        await safe_edit(callback,
+            "🌡 <b>Кондиционеры/окна</b>\n\n"
+            "❌ Не удалось получить данные о погоде. Попробуйте позже.",
+            reply_markup=_back_btn("admin:panel"),
+            parse_mode="HTML",
+        )
+        await callback.answer()
+        return
+
+    actor = await get_user_by_telegram_id(callback.from_user.id)
+    await log_action(
+        "climate_notice_sent", callback.from_user.id,
+        actor.full_name if actor else None,
+        details=f"{text[:80]}. Получателей: {sent}",
+    )
+
+    result_note = f"📤 Отправлено: {sent}" if sent else "⚠️ Никто из зала сейчас не на смене — оповещение не отправлено."
+    await safe_edit(callback,
+        f"🌡 <b>Кондиционеры/окна</b>\n\n{text}\n\n{result_note}",
+        reply_markup=_back_btn("admin:panel"),
+        parse_mode="HTML",
     )
     await callback.answer()
 
@@ -862,6 +897,7 @@ _AUDIT_EVENT_LABELS = {
     "birthday_deleted":     "🗑 День рождения удалён",
     "holiday_created":      "🎉 Праздник добавлен",
     "broadcast_sent":       "📣 Рассылка отправлена",
+    "climate_notice_sent":  "🌡 Оповещение о климате",
 }
 _AUDIT_PAGE_SIZE = 15
 

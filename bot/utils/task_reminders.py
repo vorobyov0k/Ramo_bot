@@ -4,6 +4,8 @@
 - Клининг: 10:00-22:00 каждый час — напоминание заполнить журнал гостевой уборной.
 - Зал: 10:00-22:00 каждый час — проверка погоды (Open-Meteo, без ключа), рекомендация
   открыть окна при температуре ≥23°C.
+- Зал: ручное оповещение (кнопка в admin-панели, для admin/pm/owner) — та же погода,
+  но полная логика окна/кондиционер (см. build_climate_message).
 """
 import asyncio
 import logging
@@ -24,7 +26,7 @@ VORONEZH_LAT = 51.67
 VORONEZH_LON = 39.21
 WEATHER_URL = (
     f"https://api.open-meteo.com/v1/forecast"
-    f"?latitude={VORONEZH_LAT}&longitude={VORONEZH_LON}&current=temperature_2m"
+    f"?latitude={VORONEZH_LAT}&longitude={VORONEZH_LON}&current=temperature_2m,precipitation"
 )
 WINDOW_TEMP_THRESHOLD = 23.0
 
@@ -39,16 +41,62 @@ _sent_today: set = set()  # (date_str, time_str, kind)
 
 
 async def _get_current_temp() -> Optional[float]:
+    weather = await get_current_weather()
+    return weather[0] if weather else None
+
+
+async def get_current_weather() -> Optional[tuple[float, float]]:
+    """Возвращает (температура °C, осадки мм/ч) или None при ошибке."""
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(WEATHER_URL, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
                     return None
                 data = await resp.json()
-                return data.get("current", {}).get("temperature_2m")
+                current = data.get("current", {})
+                temp = current.get("temperature_2m")
+                precip = current.get("precipitation")
+                if temp is None:
+                    return None
+                return temp, (precip or 0.0)
     except Exception as e:
-        logger.warning(f"Погода: не удалось получить температуру: {e}")
+        logger.warning(f"Погода: не удалось получить данные: {e}")
         return None
+
+
+def build_climate_message(temp: float, precipitation: float) -> str:
+    """Рекомендация по окнам/кондиционерам на основе температуры и осадков."""
+    if temp > WINDOW_TEMP_THRESHOLD and precipitation <= 0:
+        return (
+            f"☀️ <b>На улице {temp:.0f}°C, без осадков.</b>\n"
+            "Откройте окна или включите кондиционеры в зале."
+        )
+    reason = "дождь" if precipitation > 0 else f"{temp:.0f}°C"
+    return (
+        f"🌥 <b>На улице {reason}.</b>\n"
+        "Закройте окна и включите кондиционеры на 23–24°C."
+    )
+
+
+async def send_manual_climate_notice(bot: Bot) -> tuple[Optional[str], int]:
+    """Ручной триггер (кнопка в админке): считает погоду, шлёт зала на смене.
+    Возвращает (текст сообщения или None при ошибке погоды, число получателей)."""
+    weather = await get_current_weather()
+    if weather is None:
+        return None, 0
+    temp, precip = weather
+    text = build_climate_message(temp, precip)
+
+    workers = await get_users_on_shift()
+    recipients = [w for w in workers if (w.position or "") in FLOOR_POSITIONS]
+    sent = 0
+    for w in recipients:
+        try:
+            await bot.send_message(w.telegram_id, text, parse_mode="HTML")
+            sent += 1
+        except Exception as e:
+            logger.warning(f"Оповещение о климате: не отправлено {w.telegram_id}: {e}")
+    return text, sent
 
 
 async def _send_to_positions(bot: Bot, positions: set, text: str) -> None:
