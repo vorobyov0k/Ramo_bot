@@ -853,11 +853,15 @@ _AUDIT_EVENT_LABELS = {
     "task_cancelled":   "🚫 Задача отменена",
     "task_deleted":     "🗑 Задача удалена",
     "task_reassigned":  "👤 Задача переназначена",
-    "booking_accepted": "📋 Бронь принята",
-    "booking_deleted":  "🗑 Бронь удалена",
+    "booking_created":      "📋 Бронь создана",
+    "booking_accepted":     "📋 Бронь принята",
+    "booking_deleted":      "🗑 Бронь удалена",
+    "announcement_created": "📢 Анонс создан",
     "announcement_deleted": "🗑 Анонс удалён",
-    "birthday_deleted": "🗑 День рождения удалён",
-    "broadcast_sent":   "📣 Рассылка отправлена",
+    "birthday_created":     "🎂 День рождения добавлен",
+    "birthday_deleted":     "🗑 День рождения удалён",
+    "holiday_created":      "🎉 Праздник добавлен",
+    "broadcast_sent":       "📣 Рассылка отправлена",
 }
 _AUDIT_PAGE_SIZE = 15
 

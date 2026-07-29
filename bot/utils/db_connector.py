@@ -639,6 +639,11 @@ async def create_event(
         )
         session.add(event)
         await session.commit()
+    actor_name = None
+    if created_by:
+        actor = await get_user_by_telegram_id(created_by)
+        actor_name = actor.full_name if actor else None
+    await log_action(f"{event_type}_created", created_by, actor_name, title)
     return event_id
 
 
