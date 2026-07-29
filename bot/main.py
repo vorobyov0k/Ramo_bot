@@ -11,12 +11,14 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot import config
-from bot.handlers import menu, registration, library, tasks, handover, incident, control, admin, events, promos, task_manager
+from bot.handlers import menu, registration, library, tasks, handover, incident, control, admin, events, promos, task_manager, onboarding
 from bot.middlewares.auth import AuthMiddleware
 from bot.utils.db_connector import init_db, init_promos
 from bot.utils.cache_manager import get_cache_manager
 from bot.utils.menu_db import init_menu_db
 from bot.utils import promo_scheduler
+from bot.utils import onboarding_scheduler
+from bot.utils import task_reminders
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,7 +40,13 @@ async def on_startup(bot: Bot):
     logger.info("✅ Кэш инициализирован")
 
     asyncio.create_task(promo_scheduler.scheduler_loop(bot))
-    logger.info("✅ Планировщик акций запущен")
+    logger.info("✅ Планировщик брифа и пересменки запущен")
+
+    asyncio.create_task(onboarding_scheduler.scheduler_loop(bot))
+    logger.info("✅ Планировщик онбординга запущен")
+
+    asyncio.create_task(task_reminders.scheduler_loop(bot))
+    logger.info("✅ Планировщик рекомендаций по отделам запущен")
 
     await bot.set_my_commands([
         types.BotCommand(command="start", description="Главное меню / Регистрация"),
@@ -99,6 +107,7 @@ async def main():
     dp.include_router(handover.router)
     dp.include_router(incident.router)
     dp.include_router(control.router)
+    dp.include_router(onboarding.router)
 
     logger.info("🤖 Бот RAMO запущен. Ожидаю сообщения...")
     await dp.start_polling(bot)

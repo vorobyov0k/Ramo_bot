@@ -17,17 +17,22 @@
 # Техническая роль: admin/pm/owner — модерация; user — рядовой сотрудник.
 # Должность "Менеджер" — просто должность в зале, роль user (управление через должность, не через систему ролей).
 POSITION_MAP = {
-    "barman":      ("Бармен",             "user",    ["opening", "closing", "bar"]),
-    "waiter":      ("Официант",           "user",    ["opening", "closing", "floor"]),
-    "manager":     ("Менеджер",           "user",    ["opening", "closing", "bar", "floor", "cleaning", "kitchen"]),
-    "cook":        ("Повар",              "user",    ["kitchen"]),
-    "sous_chef":   ("Су-шеф",            "user",    ["kitchen"]),
-    "chef":        ("Шеф-повар",         "user",    ["kitchen"]),
-    "pm":          ("Проект. менеджер",  "pm",      ["opening", "closing", "bar", "floor", "cleaning", "kitchen"]),
-    "bar_manager": ("Бар-менеджер",      "user",    ["opening", "closing", "bar", "floor"]),
-    "cleaning":    ("Хозяюшка",          "user",    ["cleaning"]),
-    "technician":  ("Техник",            "user",    ["opening", "closing"]),
-    "owner":       ("Собственник",       "owner",   ["opening", "closing", "bar", "floor", "cleaning", "kitchen"]),
+    "barman":         ("Бармен",             "user",    ["opening", "closing", "bar"]),
+    "waiter":         ("Официант",           "user",    ["opening", "closing", "floor"]),
+    "manager":        ("Менеджер",           "user",    ["opening", "closing", "floor"]),
+    "cook":           ("Повар",              "user",    ["kitchen"]),
+    "sous_chef":      ("Су-шеф",            "user",    ["kitchen"]),
+    # Шеф-повар — личный чек-лист на день (не общий "kitchen" с поварами/су-шефом)
+    "chef":           ("Шеф-повар",         "user",    ["chef_daily"]),
+    # Проект-менеджер (Константин) — личный чек-лист на день
+    "pm":             ("Проект. менеджер",  "pm",      ["pm_daily"]),
+    "bar_manager":    ("Бар-менеджер",      "user",    ["opening", "closing", "bar", "floor"]),
+    "cleaning":       ("Хозяюшка",          "user",    ["cleaning"]),
+    "technician":     ("Техник",            "user",    ["opening", "closing"]),
+    # Собственник (Тарас) — личный чек-лист на день
+    "owner":          ("Собственник",       "owner",   ["owner_daily"]),
+    # Управляющий (Евгений) — личный чек-лист на день, полные права модерации
+    "upravlyayushchy": ("Управляющий",       "admin",   ["management_daily"]),
 }
 
 # Список должностей для выбора при регистрации.
@@ -59,6 +64,7 @@ ADMIN_POSITIONS = [
     ("pm",          "📊 Проект. менеджер"),
     ("cleaning",    "🧹 Хозяюшка"),
     ("technician",  "🔧 Техник"),
+    ("upravlyayushchy", "🧑‍💼 Управляющий"),
     ("owner",       "👑 Собственник"),
 ]
 

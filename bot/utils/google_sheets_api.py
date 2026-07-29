@@ -91,6 +91,32 @@ class GoogleSheetsConnector:
         except HttpError as e:
             raise RuntimeError(f"Ошибка записи в Google Sheets: {e}")
 
+    def append_row(self, sheet_name: str, values: List[Any]) -> dict:
+        """
+        Добавляет строку в конец листа (не перезаписывает существующие данные).
+
+        Args:
+            sheet_name: Имя листа, например "OnboardingIncidents"
+            values: Одна строка значений
+        """
+        body = {"values": [values]}
+        try:
+            result = (
+                self.service.spreadsheets()
+                .values()
+                .append(
+                    spreadsheetId=config.GOOGLE_SHEETS_SPREADSHEET_ID,
+                    range=f"{sheet_name}!A1",
+                    valueInputOption="RAW",
+                    insertDataOption="INSERT_ROWS",
+                    body=body,
+                )
+                .execute()
+            )
+            return result
+        except HttpError as e:
+            raise RuntimeError(f"Ошибка добавления строки в Google Sheets: {e}")
+
     def get_spreadsheet_info(self) -> dict:
         """Возвращает информацию о таблице (название, листы)."""
         try:

@@ -21,7 +21,14 @@ _CHECKLIST_LABELS = {
     "floor":    "🍽 Чек-лист официанта",
     "cleaning": "🧹 Чек-лист клининга",
     "kitchen":  "🍳 Чек-лист кухни",
+    "chef_daily":       "🍳 Чек-лист шеф-повара (день)",
+    "pm_daily":         "📊 Чек-лист проект-менеджера (день)",
+    "owner_daily":      "👑 Чек-лист собственника (день)",
+    "management_daily": "🧑‍💼 Чек-лист управляющего (день)",
 }
+
+# Личные (не подразделенческие) чек-листы — один на роль, без пары "открытие/закрытие"
+_PERSONAL_CL_TYPES = ["chef_daily", "pm_daily", "owner_daily", "management_daily"]
 
 # Маркер в callback_data, чтобы отличать toggle-кнопки от остальных
 _TOGGLE_PREFIX = "clt:"   # clt:{cl_type}:{item_id}
@@ -172,6 +179,10 @@ async def tasks_menu(callback: types.CallbackQuery):
         "floor":    ("🍽 Зал",               "task:view:floor"),
         "cleaning": ("🧹 Клининг",           "task:view:cleaning"),
         "kitchen":  ("🍳 Кухня",             "task:view:kitchen"),
+        "chef_daily":       ("🍳 Чек-лист на день",         "task:view:chef_daily"),
+        "pm_daily":         ("📊 Чек-лист на день",         "task:view:pm_daily"),
+        "owner_daily":      ("👑 Чек-лист на день",         "task:view:owner_daily"),
+        "management_daily": ("🧑‍💼 Чек-лист на день",       "task:view:management_daily"),
     }
 
     # Загружаем размеры чеклистов для индикатора прогресса
@@ -207,7 +218,12 @@ async def tasks_menu(callback: types.CallbackQuery):
             ))
         buttons.append(row)
 
-    buttons.append([InlineKeyboardButton(text="🔄 Передача смены", callback_data="menu:handover")])
+    # Личный чек-лист на день (шеф-повар / pm / owner / управляющий) — своя строка
+    for cl_type in _PERSONAL_CL_TYPES:
+        if cl_type in user_checklists:
+            base_label, cb = _CL_BUTTONS[cl_type]
+            buttons.append([InlineKeyboardButton(text=_cl_btn_label(cl_type, base_label), callback_data=cb)])
+
     buttons.append([InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")])
 
     text = (
