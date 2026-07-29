@@ -3,7 +3,7 @@
 Хранит: пользователей, выполнение чек-листов, handover, инциденты, прогресс.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 
 from sqlalchemy import (
@@ -211,6 +211,7 @@ class AuditLog(Base):
     target_label = Column(String(255), nullable=True)   # название задачи/брони/тема рассылки
     details = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    archived = Column(Boolean, default=False)
 
 
 class ShiftLog(Base):
@@ -297,6 +298,7 @@ async def init_db():
             "ALTER TABLE incidents_reports ADD COLUMN onboarding_day INTEGER",
             "ALTER TABLE onboarding_progress ADD COLUMN feedback_log JSON",
             "ALTER TABLE onboarding_progress ADD COLUMN decision VARCHAR(20)",
+            "ALTER TABLE audit_logs ADD COLUMN archived BOOLEAN DEFAULT 0",
         ]:
             try:
                 await conn.execute(text(col_sql))
@@ -721,18 +723,39 @@ async def log_action(
         await session.commit()
 
 
-async def get_audit_logs(limit: int = 30, offset: int = 0) -> List[AuditLog]:
-    """Последние записи журнала аудита, новые сверху."""
+async def get_audit_logs(limit: int = 30, offset: int = 0, archived: bool = False) -> List[AuditLog]:
+    """Записи журнала аудита, новые сверху. archived=False — активный журнал, True — архив."""
     from sqlalchemy import select
     async with async_session() as session:
         query = (
             select(AuditLog)
+            .where(AuditLog.archived == archived)
             .order_by(AuditLog.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
         result = await session.execute(query)
         return list(result.scalars().all())
+
+
+async def archive_audit_logs_before_today() -> int:
+    """Архивирует все записи журнала аудита старше начала текущих суток (МСК). Возвращает кол-во."""
+    from sqlalchemy import select
+    msk = timezone(timedelta(hours=3))
+    today_start_msk = datetime.now(msk).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc = today_start_msk.astimezone(timezone.utc).replace(tzinfo=None)
+    async with async_session() as session:
+        result = await session.execute(
+            select(AuditLog).where(
+                AuditLog.archived == False,
+                AuditLog.created_at < today_start_utc,
+            )
+        )
+        rows = list(result.scalars().all())
+        for row in rows:
+            row.archived = True
+        await session.commit()
+        return len(rows)
 
 
 async def accept_booking(event_id: str, user_id: int, user_name: str) -> Optional["Event"]:

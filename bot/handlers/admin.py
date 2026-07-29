@@ -899,36 +899,38 @@ _AUDIT_EVENT_LABELS = {
     "broadcast_sent":       "📣 Рассылка отправлена",
     "climate_notice_sent":  "🌡 Оповещение о климате",
 }
-_AUDIT_PAGE_SIZE = 15
+_AUDIT_PAGE_SIZE = 10
 
 
-@router.callback_query(F.data.startswith("admin:log_actions:"))
-async def admin_log_actions(callback: types.CallbackQuery):
+def _render_audit_entries(entries: list, title: str) -> str:
+    if not entries:
+        return f"{title}\n\n<i>Записей нет.</i>"
+    lines = [f"{title}\n"]
+    msk = timezone(timedelta(hours=3))
+    for e in entries:
+        label = _AUDIT_EVENT_LABELS.get(e.event_type, e.event_type)
+        ts = e.created_at.replace(tzinfo=timezone.utc).astimezone(msk).strftime("%d.%m %H:%M")
+        actor = e.actor_name or "—"
+        lines.append(f"<b>{label}</b>  <i>{ts}</i>")
+        lines.append(f"👤 {actor}" + (f" · {e.target_label}" if e.target_label else ""))
+        if e.details:
+            lines.append(f"<i>{e.details}</i>")
+        lines.append("")
+    text = "\n".join(lines)
+    if len(text) > 3900:
+        text = text[:3900] + "\n…"
+    return text
+
+
+async def _build_log_actions_page(page: int) -> tuple[str, InlineKeyboardMarkup]:
     from bot.utils.db_connector import get_audit_logs
-    page = int(callback.data.split(":")[2])
     offset = page * _AUDIT_PAGE_SIZE
 
-    entries = await get_audit_logs(limit=_AUDIT_PAGE_SIZE + 1, offset=offset)
+    entries = await get_audit_logs(limit=_AUDIT_PAGE_SIZE + 1, offset=offset, archived=False)
     has_more = len(entries) > _AUDIT_PAGE_SIZE
     entries = entries[:_AUDIT_PAGE_SIZE]
 
-    if not entries:
-        text = "🧾 <b>Логи действий</b>\n\n<i>Записей нет.</i>"
-    else:
-        lines = ["🧾 <b>Логи действий</b>\n"]
-        msk = timezone(timedelta(hours=3))
-        for e in entries:
-            label = _AUDIT_EVENT_LABELS.get(e.event_type, e.event_type)
-            ts = e.created_at.replace(tzinfo=timezone.utc).astimezone(msk).strftime("%d.%m %H:%M")
-            actor = e.actor_name or "—"
-            lines.append(f"<b>{label}</b>  <i>{ts}</i>")
-            lines.append(f"👤 {actor}" + (f" · {e.target_label}" if e.target_label else ""))
-            if e.details:
-                lines.append(f"<i>{e.details}</i>")
-            lines.append("")
-        text = "\n".join(lines)
-        if len(text) > 3900:
-            text = text[:3900] + "\n…"
+    text = _render_audit_entries(entries, "🧾 <b>Логи действий</b>")
 
     nav_row = []
     if page > 0:
@@ -937,7 +939,66 @@ async def admin_log_actions(callback: types.CallbackQuery):
         nav_row.append(InlineKeyboardButton(text="Старее →", callback_data=f"admin:log_actions:{page + 1}"))
 
     rows = [nav_row] if nav_row else []
+    rows.append([InlineKeyboardButton(text="📦 Отправить старые (не сегодня) в архив", callback_data="admin:log_archive_confirm")])
+    rows.append([InlineKeyboardButton(text="🗄 Архив логов", callback_data="admin:log_archived:0")])
     rows.append(_back_row("admin:logs"))
+
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data.startswith("admin:log_actions:"))
+async def admin_log_actions(callback: types.CallbackQuery):
+    page = int(callback.data.split(":")[2])
+    text, kb = await _build_log_actions_page(page)
+    await safe_edit(callback, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:log_archive_confirm")
+async def admin_log_archive_confirm(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📦 Да, отправить в архив", callback_data="admin:log_archive_run")],
+        [InlineKeyboardButton(text="← Назад", callback_data="admin:log_actions:0")],
+    ])
+    await safe_edit(callback,
+        "📦 <b>Архивация логов</b>\n\n"
+        "Все записи журнала действий старше сегодняшнего дня (по МСК) "
+        "переедут в архив и исчезнут из основного списка.\n\n"
+        "Продолжить?",
+        reply_markup=kb, parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:log_archive_run")
+async def admin_log_archive_run(callback: types.CallbackQuery):
+    from bot.utils.db_connector import archive_audit_logs_before_today
+    count = await archive_audit_logs_before_today()
+    text, kb = await _build_log_actions_page(0)
+    await safe_edit(callback, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer(f"📦 В архив отправлено: {count}", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("admin:log_archived:"))
+async def admin_log_archived(callback: types.CallbackQuery):
+    from bot.utils.db_connector import get_audit_logs
+    page = int(callback.data.split(":")[2])
+    offset = page * _AUDIT_PAGE_SIZE
+
+    entries = await get_audit_logs(limit=_AUDIT_PAGE_SIZE + 1, offset=offset, archived=True)
+    has_more = len(entries) > _AUDIT_PAGE_SIZE
+    entries = entries[:_AUDIT_PAGE_SIZE]
+
+    text = _render_audit_entries(entries, "🗄 <b>Архив логов</b>")
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="← Новее", callback_data=f"admin:log_archived:{page - 1}"))
+    if has_more:
+        nav_row.append(InlineKeyboardButton(text="Старее →", callback_data=f"admin:log_archived:{page + 1}"))
+
+    rows = [nav_row] if nav_row else []
+    rows.append(_back_row("admin:log_actions:0", "← К логам"))
 
     await safe_edit(callback, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode="HTML")
     await callback.answer()
