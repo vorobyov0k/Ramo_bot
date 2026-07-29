@@ -40,8 +40,8 @@ def _handover_menu_keyboard(last_handover=None) -> InlineKeyboardMarkup:
         callback_data="handover:start",
     )])
     rows.append([InlineKeyboardButton(
-        text="← Главное меню",
-        callback_data="menu:main",
+        text="← К задачам",
+        callback_data="menu:tasks",
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

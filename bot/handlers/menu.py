@@ -44,7 +44,7 @@ def _today_str() -> str:
     return f"{day}, {now.day} {_MONTHS[now.month - 1]}"
 
 
-def _build_home_keyboard(position: str, has_active_shift: bool) -> InlineKeyboardMarkup:
+def _build_home_keyboard(position: str, has_active_shift: bool, role: str = "") -> InlineKeyboardMarkup:
     buttons = []
 
     if position in _SHIFT_POSITIONS or position in _SHIFT_ROLES:
@@ -62,12 +62,12 @@ def _build_home_keyboard(position: str, has_active_shift: bool) -> InlineKeyboar
             InlineKeyboardButton(text="📋 Мои задачи", callback_data="menu:tasks"),
             InlineKeyboardButton(text="📅 События",    callback_data="menu:events"),
         ],
-        [
-            InlineKeyboardButton(text="🔄 Передача смены", callback_data="menu:handover"),
-            InlineKeyboardButton(text="🆘 Инцидент",        callback_data="menu:incident"),
-        ],
-        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")],
+        [InlineKeyboardButton(text="🆘 Инцидент", callback_data="menu:incident")],
     ]
+
+    if role in _PANEL_ROLES:
+        buttons.append([InlineKeyboardButton(text="🔧 Режим модерации", callback_data="admin:panel")])
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -107,7 +107,8 @@ async def build_home_screen(user) -> tuple[str, InlineKeyboardMarkup]:
 
     text = "\n".join(lines)
     position = user.position or user.role or ""
-    keyboard = _build_home_keyboard(position, bool(active_shift))
+    role = user.role or ""
+    keyboard = _build_home_keyboard(position, bool(active_shift), role=role)
     return text, keyboard
 
 

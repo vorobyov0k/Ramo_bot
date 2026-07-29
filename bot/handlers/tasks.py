@@ -207,6 +207,7 @@ async def tasks_menu(callback: types.CallbackQuery):
             ))
         buttons.append(row)
 
+    buttons.append([InlineKeyboardButton(text="🔄 Передача смены", callback_data="menu:handover")])
     buttons.append([InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")])
 
     text = (
