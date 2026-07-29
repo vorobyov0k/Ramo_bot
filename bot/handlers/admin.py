@@ -3,7 +3,7 @@
 Доступ: только пользователи из config.ADMIN_IDS или с ролью admin.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from aiogram import Router, Bot, types, F
 from aiogram.filters import Filter
 from aiogram.fsm.context import FSMContext
@@ -39,6 +39,7 @@ from bot.utils.positions import (
     ADMIN_ROLES,
     POSITION_MAP,
     MODERATOR_ROLES,
+    STAFF_GROUPS,
 )
 from bot.states.forms import (
     AdminBroadcastState, AdminEditRoleState, AdminEditPositionState,
@@ -138,7 +139,7 @@ def _users_filter_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text=label, callback_data=f"admin:users_role:{role}")
         for role, label in ADMIN_ROLES
     ]
-    rows = [[InlineKeyboardButton(text="👥 Все сотрудники", callback_data="admin:users")]]
+    rows = [[InlineKeyboardButton(text="👥 Все сотрудники", callback_data="admin:users_all")]]
     rows.append([InlineKeyboardButton(text="━━ По должности ━━", callback_data="noop")])
     rows += [[btn] for btn in pos_buttons]
     rows.append([InlineKeyboardButton(text="━━ По роли ━━", callback_data="noop")])
@@ -147,7 +148,7 @@ def _users_filter_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _show_users_list(callback: types.CallbackQuery, users, title: str, filter_active: bool = False):
+async def _show_users_list(callback: types.CallbackQuery, users, title: str, filter_active: bool = False, back_to: str = "admin:panel"):
     buttons = []
     buttons.append([InlineKeyboardButton(text="➕ Создать пользователя", callback_data="admin:user_create")])
 
@@ -156,7 +157,7 @@ async def _show_users_list(callback: types.CallbackQuery, users, title: str, fil
             f"{title}\n\n<i>Сотрудников не найдено.</i>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons + [
                 [InlineKeyboardButton(text="🔍 Фильтр", callback_data="admin:users_filter")],
-                _back_row("admin:panel"),
+                _back_row(back_to),
             ]),
             parse_mode="HTML",
         )
@@ -176,7 +177,7 @@ async def _show_users_list(callback: types.CallbackQuery, users, title: str, fil
         callback_data="admin:users_filter",
     )]
     buttons.append(filter_row)
-    buttons.append(_back_row("admin:panel"))
+    buttons.append(_back_row(back_to))
 
     await safe_edit(callback,
         f"{title} ({len(users)}):\n\nНажми на имя для управления:",
@@ -188,8 +189,46 @@ async def _show_users_list(callback: types.CallbackQuery, users, title: str, fil
 
 @router.callback_query(F.data == "admin:users")
 async def admin_users(callback: types.CallbackQuery):
+    """Штат по подразделениям: Зал / Бар / Кухня / Руководители / Прочее."""
+    all_users = await get_all_users(status="active")
+    counts = {
+        key: sum(1 for u in all_users if u.position in positions)
+        for key, _, positions in STAFF_GROUPS
+    }
+
+    rows = [
+        [InlineKeyboardButton(text=f"{label} ({counts[key]})", callback_data=f"admin:users_dept:{key}")]
+        for key, label, _ in STAFF_GROUPS
+    ]
+    rows.append([InlineKeyboardButton(text="➕ Создать пользователя", callback_data="admin:user_create")])
+    rows.append([InlineKeyboardButton(text="👥 Все сотрудники списком", callback_data="admin:users_all")])
+    rows.append(_back_row("admin:panel"))
+
+    await safe_edit(callback,
+        f"👥 <b>Сотрудники ({len(all_users)})</b>\n\nВыберите подразделение:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:users_dept:"))
+async def admin_users_by_dept(callback: types.CallbackQuery):
+    key = callback.data[len("admin:users_dept:"):]
+    group = next((g for g in STAFF_GROUPS if g[0] == key), None)
+    if not group:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    _, label, positions = group
+    all_users = await get_all_users(status="active")
+    filtered = [u for u in all_users if u.position in positions]
+    await _show_users_list(callback, filtered, f"{label}", filter_active=True, back_to="admin:users")
+
+
+@router.callback_query(F.data == "admin:users_all")
+async def admin_users_all(callback: types.CallbackQuery):
     users = await get_all_users(status="active")
-    await _show_users_list(callback, users, "👥 <b>Все активные сотрудники</b>")
+    await _show_users_list(callback, users, "👥 <b>Все активные сотрудники</b>", back_to="admin:users")
 
 
 @router.callback_query(F.data == "admin:users_filter")
@@ -797,6 +836,7 @@ async def admin_logs(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="✅ Выполненные чек-листы", callback_data="admin:log_checklists")],
         [InlineKeyboardButton(text="🆘 Инциденты", callback_data="admin:log_incidents")],
         [InlineKeyboardButton(text="🔄 Передачи смен", callback_data="admin:log_handovers")],
+        [InlineKeyboardButton(text="🧾 Логи действий", callback_data="admin:log_actions:0")],
         _back_row("admin:panel"),
     ])
     await safe_edit(callback,
@@ -804,6 +844,59 @@ async def admin_logs(callback: types.CallbackQuery):
         reply_markup=keyboard,
         parse_mode="HTML",
     )
+    await callback.answer()
+
+
+_AUDIT_EVENT_LABELS = {
+    "task_created":     "➕ Задача создана",
+    "task_completed":   "✅ Задача выполнена",
+    "task_cancelled":   "🚫 Задача отменена",
+    "task_deleted":     "🗑 Задача удалена",
+    "task_reassigned":  "👤 Задача переназначена",
+    "booking_accepted": "📋 Бронь принята",
+    "broadcast_sent":   "📣 Рассылка отправлена",
+}
+_AUDIT_PAGE_SIZE = 15
+
+
+@router.callback_query(F.data.startswith("admin:log_actions:"))
+async def admin_log_actions(callback: types.CallbackQuery):
+    from bot.utils.db_connector import get_audit_logs
+    page = int(callback.data.split(":")[2])
+    offset = page * _AUDIT_PAGE_SIZE
+
+    entries = await get_audit_logs(limit=_AUDIT_PAGE_SIZE + 1, offset=offset)
+    has_more = len(entries) > _AUDIT_PAGE_SIZE
+    entries = entries[:_AUDIT_PAGE_SIZE]
+
+    if not entries:
+        text = "🧾 <b>Логи действий</b>\n\n<i>Записей нет.</i>"
+    else:
+        lines = ["🧾 <b>Логи действий</b>\n"]
+        msk = timezone(timedelta(hours=3))
+        for e in entries:
+            label = _AUDIT_EVENT_LABELS.get(e.event_type, e.event_type)
+            ts = e.created_at.replace(tzinfo=timezone.utc).astimezone(msk).strftime("%d.%m %H:%M")
+            actor = e.actor_name or "—"
+            lines.append(f"<b>{label}</b>  <i>{ts}</i>")
+            lines.append(f"👤 {actor}" + (f" · {e.target_label}" if e.target_label else ""))
+            if e.details:
+                lines.append(f"<i>{e.details}</i>")
+            lines.append("")
+        text = "\n".join(lines)
+        if len(text) > 3900:
+            text = text[:3900] + "\n…"
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="← Новее", callback_data=f"admin:log_actions:{page - 1}"))
+    if has_more:
+        nav_row.append(InlineKeyboardButton(text="Старее →", callback_data=f"admin:log_actions:{page + 1}"))
+
+    rows = [nav_row] if nav_row else []
+    rows.append(_back_row("admin:logs"))
+
+    await safe_edit(callback, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode="HTML")
     await callback.answer()
 
 
@@ -1692,6 +1785,17 @@ async def admin_broadcast_confirm(callback: types.CallbackQuery, state: FSMConte
         except Exception as e:
             logger.warning(f"Рассылка: не отправлено {u.telegram_id}: {e}")
             failed += 1
+
+    admin_user = await get_user_by_telegram_id(callback.from_user.id)
+    from bot.utils.db_connector import log_action
+    preview = text[:100] + ("…" if len(text) > 100 else "")
+    await log_action(
+        "broadcast_sent",
+        callback.from_user.id,
+        admin_user.full_name if admin_user else None,
+        preview,
+        details=f"Кому: {target}. Отправлено: {sent}, ошибок: {failed}",
+    )
 
     await safe_edit(callback,
         f"✅ <b>Рассылка завершена</b>\n\n"

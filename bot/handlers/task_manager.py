@@ -893,7 +893,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
         return
 
     if action == "do_cancel":
-        await cancel_task_db(task_id, user.telegram_id)
+        await cancel_task_db(task_id, user.telegram_id, user.full_name)
         await callback.answer("🚫 Задача отменена")
         await tm_task_detail(callback, task_id)
         return
@@ -915,7 +915,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
         return
 
     if action == "do_delete":
-        deleted = await delete_task_db(task_id)
+        deleted = await delete_task_db(task_id, user.telegram_id, user.full_name)
         if deleted:
             await callback.answer("🗑 Задача удалена")
             kb = InlineKeyboardMarkup(inline_keyboard=[

@@ -34,6 +34,8 @@ POSITION_MAP = {
     "owner":          ("Собственник",       "owner",   ["owner_daily"]),
     # Управляющий (Евгений) — личный чек-лист на день, полные права модерации
     "upravlyayushchy": ("Управляющий",       "admin",   ["management_daily"]),
+    # SMM — без чек-листов, доступ только к общей библиотеке/акциям
+    "smm":            ("SMM",                "user",    []),
 }
 
 # Список должностей для выбора при регистрации.
@@ -66,6 +68,7 @@ ADMIN_POSITIONS = [
     ("cleaning",    "🧹 Хозяюшка"),
     ("technician",  "🔧 Техник"),
     ("upravlyayushchy", "🧑‍💼 Управляющий"),
+    ("smm",         "📱 SMM"),
     ("owner",       "👑 Собственник"),
 ]
 
@@ -167,3 +170,13 @@ POSITION_TO_DEPARTMENT = {
 def position_to_department(position_slug: str) -> Optional[str]:
     """Отдел (для task_manager) по должности, если применимо."""
     return POSITION_TO_DEPARTMENT.get(position_slug)
+
+
+# Группировка должностей для админ-панели «Пользователи по подразделениям».
+STAFF_GROUPS = [
+    ("hall",        "🍽 Зал",          ["waiter", "manager"]),
+    ("bar",         "🍸 Бар",          ["barman", "bar_manager"]),
+    ("kitchen",     "🍳 Кухня",        ["cook", "sous_chef", "chef"]),
+    ("leadership",  "👑 Руководители", ["pm", "upravlyayushchy", "owner"]),
+    ("other",       "🗂 Прочее",       ["cleaning", "technician", "smm"]),
+]

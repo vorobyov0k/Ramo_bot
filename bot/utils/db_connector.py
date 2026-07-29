@@ -199,6 +199,20 @@ class Task(Base):
     # [{from_id, from_name, to_id, to_name, ts}]
 
 
+class AuditLog(Base):
+    """Журнал действий с задачами/бронями/рассылками — переживает удаление задач."""
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_type = Column(String(50))     # task_created/task_completed/task_cancelled/
+                                          # task_deleted/task_reassigned/booking_accepted/broadcast_sent
+    actor_id = Column(Integer, nullable=True)
+    actor_name = Column(String(255), nullable=True)
+    target_label = Column(String(255), nullable=True)   # название задачи/брони/тема рассылки
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ShiftLog(Base):
     __tablename__ = "shift_logs"
 
@@ -666,6 +680,39 @@ async def delete_event(event_id: str) -> bool:
         return True
 
 
+async def log_action(
+    event_type: str,
+    actor_id: Optional[int] = None,
+    actor_name: Optional[str] = None,
+    target_label: Optional[str] = None,
+    details: Optional[str] = None,
+) -> None:
+    """Записывает действие в журнал аудита (задачи/брони/рассылки)."""
+    async with async_session() as session:
+        session.add(AuditLog(
+            event_type=event_type,
+            actor_id=actor_id,
+            actor_name=actor_name,
+            target_label=target_label,
+            details=details,
+        ))
+        await session.commit()
+
+
+async def get_audit_logs(limit: int = 30, offset: int = 0) -> List[AuditLog]:
+    """Последние записи журнала аудита, новые сверху."""
+    from sqlalchemy import select
+    async with async_session() as session:
+        query = (
+            select(AuditLog)
+            .order_by(AuditLog.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+
 async def accept_booking(event_id: str, user_id: int, user_name: str) -> Optional["Event"]:
     """Отмечает бронь принятой (гости пришли) и убирает её из активного списка."""
     async with async_session() as session:
@@ -678,8 +725,10 @@ async def accept_booking(event_id: str, user_id: int, user_name: str) -> Optiona
         meta["accepted_at"] = datetime.utcnow().isoformat()
         event.meta = meta
         event.is_active = False
+        title = event.title
         await session.commit()
-        return event
+    await log_action("booking_accepted", user_id, user_name, title)
+    return event
 
 
 # ─── Admin CRUD ───
@@ -966,6 +1015,11 @@ async def create_task(
         )
         session.add(task)
         await session.commit()
+    if not is_self_logged:
+        await log_action(
+            "task_created", created_by, created_by_name, title,
+            details=f"Кому: {assigned_to_name or department or '—'}",
+        )
     return task_id
 
 
@@ -1038,8 +1092,10 @@ async def complete_task_db(
         task.completion_comment = comment
         task.completion_photos = photos or []
         task.updated_at = datetime.utcnow()
+        title = task.title
         await session.commit()
-        return True
+    await log_action("task_completed", completed_by, completed_by_name, title, details=comment)
+    return True
 
 
 async def reassign_task_db(
@@ -1070,11 +1126,16 @@ async def reassign_task_db(
         if new_department:
             task.department = new_department
         task.updated_at = datetime.utcnow()
+        title = task.title
         await session.commit()
-        return True
+    await log_action(
+        "task_reassigned", by_user_id, by_user_name, title,
+        details=f"{old_entry['from_name']} → {old_entry['to_name']}",
+    )
+    return True
 
 
-async def cancel_task_db(task_id: str, cancelled_by: int) -> bool:
+async def cancel_task_db(task_id: str, cancelled_by: int, cancelled_by_name: Optional[str] = None) -> bool:
     async with async_session() as session:
         task = await session.get(Task, task_id)
         if not task or task.status not in ("open",):
@@ -1083,8 +1144,10 @@ async def cancel_task_db(task_id: str, cancelled_by: int) -> bool:
         task.cancelled_by = cancelled_by
         task.cancelled_at = datetime.utcnow()
         task.updated_at = datetime.utcnow()
+        title = task.title
         await session.commit()
-        return True
+    await log_action("task_cancelled", cancelled_by, cancelled_by_name, title)
+    return True
 
 
 async def update_user_name(telegram_id: int, new_name: str) -> bool:
@@ -1102,15 +1165,17 @@ async def update_user_name(telegram_id: int, new_name: str) -> bool:
         return True
 
 
-async def delete_task_db(task_id: str) -> bool:
+async def delete_task_db(task_id: str, deleted_by: Optional[int] = None, deleted_by_name: Optional[str] = None) -> bool:
     """Удаляет задачу. Только для статусов done/cancelled."""
     async with async_session() as session:
         task = await session.get(Task, task_id)
         if not task or task.status not in ("done", "cancelled"):
             return False
+        title = task.title
         await session.delete(task)
         await session.commit()
-        return True
+    await log_action("task_deleted", deleted_by, deleted_by_name, title)
+    return True
 
 
 async def add_task_comment_db(
