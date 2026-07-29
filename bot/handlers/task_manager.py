@@ -73,6 +73,11 @@ _DEPT_TO_ROLES = {
     "all": ["barman", "waiter", "security"],
 }
 
+# Задача/рассылка на «Зал» касается барменов и менеджеров тоже — оповещаем весь фронт.
+_DEPT_NOTIFY_EXPANSION = {
+    "restaurant": ["restaurant", "bar"],
+}
+
 TASKS_PER_PAGE = 5
 
 
@@ -581,7 +586,8 @@ async def _notify_task_assigned(bot: Bot, task_id: str, data: dict, creator_name
         if assigned_to:
             await bot.send_message(assigned_to, text, parse_mode="HTML")
         else:
-            workers = await get_active_workers(dept if dept != "all" else None)
+            target_depts = _DEPT_NOTIFY_EXPANSION.get(dept, dept)
+            workers = await get_active_workers(target_depts if dept != "all" else None)
             for w in workers:
                 try:
                     await bot.send_message(w.telegram_id, text, parse_mode="HTML")
@@ -1010,7 +1016,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
             by_user_name=user.full_name,
         )
         # Уведомить отдел
-        workers = await get_active_workers(value)
+        workers = await get_active_workers(_DEPT_NOTIFY_EXPANSION.get(value, value))
         dept_label = _DEPT_LABELS.get(value, value)
         for w in workers:
             try:

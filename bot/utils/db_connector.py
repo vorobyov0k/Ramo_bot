@@ -329,6 +329,7 @@ async def approve_user(
     role: Optional[str] = None,
     position: Optional[str] = None,
 ) -> None:
+    from bot.utils.positions import position_to_department
     async with async_session() as session:
         user = await session.get(User, telegram_id)
         if user:
@@ -337,6 +338,9 @@ async def approve_user(
             user.role = role or user.requested_role
             if position:
                 user.position = position
+                user.department = position_to_department(position)
+            elif user.position:
+                user.department = position_to_department(user.position)
             await session.commit()
 
 
@@ -701,11 +705,13 @@ async def update_user_role(telegram_id: int, new_role: str) -> bool:
 
 
 async def update_user_position(telegram_id: int, new_position: str) -> bool:
+    from bot.utils.positions import position_to_department
     async with async_session() as session:
         user = await session.get(User, telegram_id)
         if not user:
             return False
         user.position = new_position
+        user.department = position_to_department(new_position)
         await session.commit()
         return True
 
@@ -1240,8 +1246,8 @@ async def get_users_on_shift() -> List[User]:
         return list(result.scalars().unique().all())
 
 
-async def get_active_workers(department: Optional[str] = None) -> List[User]:
-    """Активные работники, опционально по отделу. Исключает admin/pm."""
+async def get_active_workers(department=None) -> List[User]:
+    """Активные работники, опционально по отделу (str) или нескольким (list[str]). Исключает admin/pm."""
     from sqlalchemy import select
     async with async_session() as session:
         query = select(User).where(
@@ -1249,6 +1255,9 @@ async def get_active_workers(department: Optional[str] = None) -> List[User]:
             User.role.notin_(["admin", "pm"]),
         )
         if department and department != "all":
-            query = query.where(User.department == department)
+            if isinstance(department, (list, tuple, set)):
+                query = query.where(User.department.in_(department))
+            else:
+                query = query.where(User.department == department)
         result = await session.execute(query.order_by(User.full_name))
         return list(result.scalars().all())

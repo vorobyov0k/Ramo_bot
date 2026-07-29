@@ -12,6 +12,7 @@
 Должности (user.position) — для отображения и набора чек-листов:
   Бармен, Официант, Менеджер, Повар, … Техник
 """
+from typing import Optional
 
 # slug → (display_name, technical_role, checklists)
 # Техническая роль: admin/pm/owner — модерация; user — рядовой сотрудник.
@@ -151,3 +152,18 @@ def get_user_checklists(user) -> list:
 def position_to_role(position_slug: str) -> str:
     """Техническая роль для должности."""
     return POSITION_MAP.get(position_slug, ("", "user", []))[1]
+
+
+# Должность → отдел для назначения/уведомления задач (task_manager: bar/restaurant/security/all).
+# Менеджер отнесён к "restaurant" — управляет залом и должен получать оповещения по Залу.
+POSITION_TO_DEPARTMENT = {
+    "barman":      "bar",
+    "bar_manager": "bar",
+    "waiter":      "restaurant",
+    "manager":     "restaurant",
+}
+
+
+def position_to_department(position_slug: str) -> Optional[str]:
+    """Отдел (для task_manager) по должности, если применимо."""
+    return POSITION_TO_DEPARTMENT.get(position_slug)
