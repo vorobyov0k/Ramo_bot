@@ -1508,8 +1508,13 @@ async def admin_bc_type_select(callback: types.CallbackQuery, state: FSMContext)
             await state.clear()
             return
 
+        def _event_btn_label(e) -> str:
+            date_str = e.event_date.strftime("%d.%m %H:%M")
+            name = e.title or (e.meta or {}).get("name", "") or e.event_type
+            return f"{date_str} — {name}"[:60]
+
         rows = [[InlineKeyboardButton(
-            text=f"{e.event_type[:20]} • {e.event_date.strftime('%d.%m')}",
+            text=_event_btn_label(e),
             callback_data=f"admin:bc_event:{e.event_id}"
         )] for e in events[:10]]  # Максимум 10
         rows.append([InlineKeyboardButton(text="✖ Назад", callback_data="admin:broadcast")])
@@ -1554,12 +1559,43 @@ async def admin_bc_event_select(callback: types.CallbackQuery, state: FSMContext
         await callback.answer("❌ Событие не найдено", show_alert=True)
         return
 
-    text = (
-        f"📅 <b>Событие</b>\n\n"
-        f"<b>{event.event_type}</b>\n"
-        f"📍 {event.description or '—'}\n"
-        f"🕐 {event.event_date.strftime('%d.%m.%Y')}"
-    )
+    meta = event.meta or {}
+    date_str = event.event_date.strftime("%d.%m.%Y %H:%M")
+    if event.event_type == "booking":
+        guests = meta.get("guest_count", "?")
+        phone = meta.get("phone", "")
+        comment = meta.get("comment", "")
+        text = (
+            f"📋 <b>Бронирование</b>\n\n"
+            f"👤 {event.title}\n"
+            f"🕐 {date_str}\n"
+            f"👥 Гостей: {guests}\n"
+        )
+        if phone:
+            text += f"📞 {phone}\n"
+        if comment:
+            text += f"💬 {comment}\n"
+    elif event.event_type == "announcement":
+        text = (
+            f"📢 <b>Анонс</b>\n\n"
+            f"<b>{event.title}</b>\n"
+            f"🕐 {date_str}\n"
+        )
+        if event.description:
+            text += f"\n{event.description}"
+    elif event.event_type == "birthday":
+        text = (
+            f"🎂 <b>День рождения</b>\n\n"
+            f"<b>{event.title}</b>\n"
+            f"🕐 {date_str}"
+        )
+    else:
+        text = (
+            f"📅 <b>{event.title or event.event_type}</b>\n\n"
+            f"🕐 {date_str}\n"
+        )
+        if event.description:
+            text += f"\n{event.description}"
     await state.update_data(broadcast_text=text, broadcast_source="event", broadcast_id=event_id)
     await state.set_state(AdminBroadcastState.waiting_target)
     await _show_broadcast_targets(callback, text, "событие")

@@ -1083,11 +1083,12 @@ async def cancel_task_db(task_id: str, cancelled_by: int) -> bool:
 
 async def update_user_name(telegram_id: int, new_name: str) -> bool:
     """Обновляет full_name пользователя."""
+    from sqlalchemy import select
     async with async_session() as session:
-        user = await session.execute(
-            select(BotUser).where(BotUser.telegram_id == telegram_id)
+        result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
         )
-        user = user.scalar_one_or_none()
+        user = result.scalar_one_or_none()
         if not user:
             return False
         user.full_name = new_name
