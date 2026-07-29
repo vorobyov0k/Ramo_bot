@@ -32,17 +32,13 @@ async def control_menu(callback: types.CallbackQuery):
         f"👔 <b>Панель менеджера</b>\n"
         f"Привет, {name}!\n\n"
         "Здесь ты можешь:\n"
-        "• Контролировать выполнение чек-листов\n"
-        "• Просматривать передачи смен\n"
-        "• Следить за инцидентами\n\n"
+        "• Контролировать выполнение чек-листов\n\n"
         "<i>Раздел находится в разработке. "
         "Функции появятся в ближайших обновлениях.</i>"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Открыть библиотеку", callback_data="menu:library")],
-        [InlineKeyboardButton(text="🆘 Журнал инцидентов", callback_data="menu:incident")],
-        [InlineKeyboardButton(text="🔄 Передачи смен", callback_data="menu:handover")],
+        [InlineKeyboardButton(text="🎓 Онбординг новичков", callback_data="onboarding:overview")],
         [InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")],
     ])
 

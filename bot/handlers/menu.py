@@ -13,11 +13,19 @@ from bot.utils.db_connector import (
     close_shift,
     get_today_events_count,
     get_today_open_tasks_count,
+    get_active_onboarding,
 )
 from bot.utils.positions import (
     get_position_display, get_user_checklists, get_role_display_ui, MODERATOR_ROLES,
 )
 from bot.utils.tg_helpers import safe_edit
+from bot.utils.onboarding_content import day_number_for
+
+
+def _position_with_onboarding_badge(position_display: str, onboarding) -> str:
+    if not onboarding:
+        return position_display
+    return f"{position_display} · Стажёр, день {day_number_for(onboarding)}"
 
 router = Router()
 
@@ -44,7 +52,7 @@ def _today_str() -> str:
     return f"{day}, {now.day} {_MONTHS[now.month - 1]}"
 
 
-def _build_home_keyboard(position: str, has_active_shift: bool) -> InlineKeyboardMarkup:
+def _build_home_keyboard(position: str, has_active_shift: bool, has_onboarding: bool = False, role: str = "") -> InlineKeyboardMarkup:
     buttons = []
 
     if position in _SHIFT_POSITIONS or position in _SHIFT_ROLES:
@@ -53,18 +61,22 @@ def _build_home_keyboard(position: str, has_active_shift: bool) -> InlineKeyboar
         else:
             buttons.append([InlineKeyboardButton(text="🟢 Начать смену", callback_data="home:start_shift")])
 
+    if has_onboarding:
+        buttons.append([InlineKeyboardButton(text="📊 Мой прогресс (онбординг)", callback_data="menu:progress")])
+
+    if role in _PANEL_ROLES:
+        buttons.append([InlineKeyboardButton(text="👥 Контроль команды", callback_data="menu:control")])
+
     buttons += [
         [
-            InlineKeyboardButton(text="📚 Библиотека", callback_data="menu:library"),
-            InlineKeyboardButton(text="🎁 Акции",      callback_data="menu:promos"),
+            InlineKeyboardButton(text="📚 Библиотека",         callback_data="menu:library"),
+            InlineKeyboardButton(text="🎁 Акции и события",    callback_data="menu:promos_events"),
         ],
         [
-            InlineKeyboardButton(text="📋 Мои задачи", callback_data="menu:tasks"),
-            InlineKeyboardButton(text="📅 События",    callback_data="menu:events"),
+            InlineKeyboardButton(text="📋 Задачи и передача смены", callback_data="menu:tasks_handover"),
         ],
         [
-            InlineKeyboardButton(text="🔄 Передача смены", callback_data="menu:handover"),
-            InlineKeyboardButton(text="🆘 Инцидент",        callback_data="menu:incident"),
+            InlineKeyboardButton(text="🆘 Инцидент", callback_data="menu:incident"),
         ],
         [InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")],
     ]
@@ -79,12 +91,13 @@ async def build_home_screen(user) -> tuple[str, InlineKeyboardMarkup]:
     events_count = await get_today_events_count()
     tasks_count = await get_today_open_tasks_count(user.telegram_id, department)
     active_shift = await get_active_shift(user.telegram_id)
+    onboarding = await get_active_onboarding(user.telegram_id)
 
     today = _today_str()
 
     lines = [
         f"👋 <b>Привет, {user.full_name}!</b>",
-        f"👔 {position_display}  |  📅 {today}",
+        f"👔 {_position_with_onboarding_badge(position_display, onboarding)}  |  📅 {today}",
         "",
     ]
 
@@ -107,7 +120,7 @@ async def build_home_screen(user) -> tuple[str, InlineKeyboardMarkup]:
 
     text = "\n".join(lines)
     position = user.position or user.role or ""
-    keyboard = _build_home_keyboard(position, bool(active_shift))
+    keyboard = _build_home_keyboard(position, bool(active_shift), bool(onboarding), user.role or "")
     return text, keyboard
 
 
@@ -133,6 +146,28 @@ async def show_home_screen(trigger, user=None):
 @router.callback_query(F.data == "menu:main")
 async def callback_main_menu(callback: types.CallbackQuery):
     await show_home_screen(callback)
+
+
+@router.callback_query(F.data == "menu:promos_events")
+async def promos_events_hub(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Акции", callback_data="menu:promos")],
+        [InlineKeyboardButton(text="📅 События", callback_data="menu:events")],
+        [InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")],
+    ])
+    await safe_edit(callback, "🎁 <b>Акции и события</b>\n\nВыбери раздел:", kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:tasks_handover")
+async def tasks_handover_hub(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Мои задачи", callback_data="menu:tasks")],
+        [InlineKeyboardButton(text="🔄 Передача смены", callback_data="menu:handover")],
+        [InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")],
+    ])
+    await safe_edit(callback, "📋 <b>Задачи и передача смены</b>\n\nВыбери раздел:", kb)
+    await callback.answer()
 
 
 @router.callback_query(F.data == "home:start_shift")
@@ -180,7 +215,9 @@ async def settings_menu(callback: types.CallbackQuery):
         or role == "admin"
     )
 
+    onboarding = await get_active_onboarding(user_id) if db_user else None
     position_display = get_position_display(db_user) if db_user else "—"
+    position_display = _position_with_onboarding_badge(position_display, onboarding)
     role_display = get_role_display_ui(role or "")
     info = (
         f"👤 Должность: <b>{position_display}</b>\n"
@@ -211,20 +248,6 @@ async def settings_menu(callback: types.CallbackQuery):
     buttons.append([InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     await safe_edit(callback, text, keyboard)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:progress")
-async def progress_menu(callback: types.CallbackQuery):
-    text = (
-        "📊 <b>Мой прогресс</b>\n\n"
-        "Здесь будет отображаться твой прогресс онбординга.\n\n"
-        "<i>Раздел в разработке.</i>"
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")],
-    ])
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 

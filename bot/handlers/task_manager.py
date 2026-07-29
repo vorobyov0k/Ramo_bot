@@ -704,13 +704,14 @@ async def tm_task_list(callback: types.CallbackQuery):
 # ─── ДЕТАЛЬНАЯ КАРТОЧКА ЗАДАЧИ (МЕНЕДЖЕР) ────────────────────────────────────
 
 @router.callback_query(F.data.startswith("tm:task:"))
-async def tm_task_detail(callback: types.CallbackQuery):
+async def tm_task_detail(callback: types.CallbackQuery, task_id: str = None):
     user = await get_user_by_telegram_id(callback.from_user.id)
     if not user or user.role not in _MANAGER_ROLES:
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
 
-    task_id = callback.data[len("tm:task:"):]
+    if task_id is None:
+        task_id = callback.data[len("tm:task:"):]
     task = await get_task(task_id)
     if not task:
         await callback.answer("Задача не найдена", show_alert=True)
@@ -842,8 +843,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
         await update_task_priority(task_id, value)
         await callback.answer(f"Приоритет: {_PRIORITY_LABELS.get(value, value)}")
         # Перерисовываем карточку
-        callback.data = f"tm:task:{task_id}"
-        await tm_task_detail(callback)
+        await tm_task_detail(callback, task_id)
         return
 
     # ── Выполнить задачу ──
@@ -867,8 +867,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
             comment="",
         )
         await callback.answer("✅ Задача отмечена как выполненная")
-        callback.data = f"tm:task:{task_id}"
-        await tm_task_detail(callback)
+        await tm_task_detail(callback, task_id)
         return
 
     # ── Отмена задачи ──
@@ -887,8 +886,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
     if action == "do_cancel":
         await cancel_task_db(task_id, user.telegram_id)
         await callback.answer("🚫 Задача отменена")
-        callback.data = f"tm:task:{task_id}"
-        await tm_task_detail(callback)
+        await tm_task_detail(callback, task_id)
         return
 
     # ── Комментарий ──
@@ -967,8 +965,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
         except Exception:
             pass
         await callback.answer(f"✅ Переназначено: {worker.full_name}")
-        callback.data = f"tm:task:{task_id}"
-        await tm_task_detail(callback)
+        await tm_task_detail(callback, task_id)
         return
 
     if action == "asn_dept" and value:
@@ -993,8 +990,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
             except Exception:
                 pass
         await callback.answer(f"✅ Назначено на {dept_label}")
-        callback.data = f"tm:task:{task_id}"
-        await tm_task_detail(callback)
+        await tm_task_detail(callback, task_id)
         return
 
     # ── Изменение дедлайна ──
@@ -1032,8 +1028,7 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
             dt = _deadline_tomorrow_morning()
         await update_task_deadline(task_id, dt)
         await callback.answer("📅 Дедлайн обновлён")
-        callback.data = f"tm:task:{task_id}"
-        await tm_task_detail(callback)
+        await tm_task_detail(callback, task_id)
         return
 
     await callback.answer()

@@ -15,6 +15,7 @@ ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(","))) if os.getenv("
 GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
 GOOGLE_TOKEN_FILE = os.getenv("GOOGLE_TOKEN_FILE", "token.json")
 GOOGLE_CLIENT_SECRET_FILE = os.getenv("GOOGLE_CLIENT_SECRET_FILE", "client_secret.json")
+ONBOARDING_SHEET_NAME = os.getenv("ONBOARDING_SHEET_NAME", "OnboardingIncidents")
 
 # Storage and cache
 # Пути к БД якорим на корень проекта (родитель папки bot/), а НЕ на текущую

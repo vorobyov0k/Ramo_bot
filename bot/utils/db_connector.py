@@ -89,6 +89,9 @@ class IncidentReport(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     notes = Column(Text, nullable=True)
+    severity = Column(String(20), nullable=True)  # Лёгкая / Средняя / Критичная
+    newcomer_id = Column(Integer, ForeignKey("bot_users.telegram_id"), nullable=True)
+    onboarding_day = Column(Integer, nullable=True)
 
 
 class Event(Base):
@@ -115,9 +118,21 @@ class OnboardingProgress(Base):
     quiz_results = Column(JSON, default=list)
     mentor_id = Column(Integer, ForeignKey("bot_users.telegram_id"), nullable=True)
     feedback = Column(Text, nullable=True)
+    feedback_log = Column(JSON, default=list)  # [{date, author_id, text}]
+    decision = Column(String(20), nullable=True)  # accepted / extended / rejected
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+
+
+class OnboardingShiftPhoto(Base):
+    __tablename__ = "onboarding_shift_photos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    newcomer_id = Column(Integer, ForeignKey("bot_users.telegram_id"))
+    day_number = Column(Integer, nullable=True)
+    file_id = Column(String(255))
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class PromoConfig(Base):
@@ -262,6 +277,12 @@ async def init_db():
             "ALTER TABLE handover_logs ADD COLUMN accepted_by INTEGER REFERENCES bot_users(telegram_id)",
             "ALTER TABLE handover_logs ADD COLUMN accepted_at DATETIME",
             "ALTER TABLE checklist_executions ADD COLUMN archived BOOLEAN DEFAULT 0",
+            # onboarding — трекер онбординга новичков
+            "ALTER TABLE incidents_reports ADD COLUMN severity VARCHAR(20)",
+            "ALTER TABLE incidents_reports ADD COLUMN newcomer_id INTEGER REFERENCES bot_users(telegram_id)",
+            "ALTER TABLE incidents_reports ADD COLUMN onboarding_day INTEGER",
+            "ALTER TABLE onboarding_progress ADD COLUMN feedback_log JSON",
+            "ALTER TABLE onboarding_progress ADD COLUMN decision VARCHAR(20)",
         ]:
             try:
                 await conn.execute(text(col_sql))
@@ -383,6 +404,9 @@ async def save_incident_report(
     witnesses: Optional[List[Dict]] = None,
     photo_urls: Optional[List[str]] = None,
     status: str = "happened",
+    severity: Optional[str] = None,
+    newcomer_id: Optional[int] = None,
+    onboarding_day: Optional[int] = None,
 ) -> str:
     incident_id = str(uuid.uuid4())
     async with async_session() as session:
@@ -396,10 +420,25 @@ async def save_incident_report(
             witnesses=witnesses or [],
             photo_urls=photo_urls or [],
             status=status,
+            severity=severity,
+            newcomer_id=newcomer_id,
+            onboarding_day=onboarding_day,
         )
         session.add(incident)
         await session.commit()
     return incident_id
+
+
+async def get_incidents_for_newcomer(newcomer_id: int, limit: int = 50) -> List[IncidentReport]:
+    from sqlalchemy import select
+    async with async_session() as session:
+        result = await session.execute(
+            select(IncidentReport)
+            .where(IncidentReport.newcomer_id == newcomer_id)
+            .order_by(IncidentReport.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
 
 async def get_user_access_level(telegram_id: int) -> Optional[Dict[str, Any]]:
@@ -414,6 +453,149 @@ async def get_user_access_level(telegram_id: int) -> Optional[Dict[str, Any]]:
         "status": user.status,
         "active": user.active,
     }
+
+
+# ─── Onboarding CRUD ───
+
+async def start_onboarding(newcomer_id: int, mentor_id: Optional[int] = None) -> str:
+    """Запускает онбординг новичка. Возвращает progress_id."""
+    progress_id = str(uuid.uuid4())
+    async with async_session() as session:
+        progress = OnboardingProgress(
+            progress_id=progress_id,
+            newcomer_id=newcomer_id,
+            stage="day1",
+            mentor_id=mentor_id,
+            checklist_items=[],
+            quiz_results=[],
+            feedback_log=[],
+        )
+        session.add(progress)
+        await session.commit()
+    return progress_id
+
+
+async def get_active_onboarding(newcomer_id: int) -> Optional[OnboardingProgress]:
+    """Активный (незавершённый) онбординг новичка, если есть."""
+    from sqlalchemy import select
+    async with async_session() as session:
+        result = await session.execute(
+            select(OnboardingProgress)
+            .where(
+                OnboardingProgress.newcomer_id == newcomer_id,
+                OnboardingProgress.completed_at == None,
+            )
+            .order_by(OnboardingProgress.created_at.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+
+async def get_onboarding(progress_id: str) -> Optional[OnboardingProgress]:
+    async with async_session() as session:
+        return await session.get(OnboardingProgress, progress_id)
+
+
+async def get_all_active_onboardings() -> List[OnboardingProgress]:
+    """Все незавершённые онбординги (для панели менеджера и планировщика)."""
+    from sqlalchemy import select
+    async with async_session() as session:
+        result = await session.execute(
+            select(OnboardingProgress)
+            .where(OnboardingProgress.completed_at == None)
+            .order_by(OnboardingProgress.created_at)
+        )
+        return list(result.scalars().all())
+
+
+async def toggle_onboarding_checklist_item(progress_id: str, item_key: str) -> Optional[bool]:
+    """Переключает пункт чек-листа. Возвращает новое состояние (done) или None если не найдено."""
+    async with async_session() as session:
+        progress = await session.get(OnboardingProgress, progress_id)
+        if not progress:
+            return None
+        items = list(progress.checklist_items or [])
+        found = False
+        new_done = True
+        for item in items:
+            if item.get("key") == item_key:
+                item["done"] = not item.get("done", False)
+                new_done = item["done"]
+                found = True
+                break
+        if not found:
+            items.append({"key": item_key, "done": True})
+        progress.checklist_items = items
+        progress.updated_at = datetime.utcnow()
+        await session.commit()
+        return new_done
+
+
+async def save_onboarding_quiz_result(progress_id: str, score: float, passed: bool, answers: List[int]) -> bool:
+    async with async_session() as session:
+        progress = await session.get(OnboardingProgress, progress_id)
+        if not progress:
+            return False
+        results = list(progress.quiz_results or [])
+        results.append({
+            "date": datetime.utcnow().isoformat(),
+            "score": score,
+            "passed": passed,
+            "answers": answers,
+        })
+        progress.quiz_results = results
+        progress.updated_at = datetime.utcnow()
+        await session.commit()
+        return True
+
+
+async def add_onboarding_feedback(progress_id: str, author_id: int, text: str) -> bool:
+    async with async_session() as session:
+        progress = await session.get(OnboardingProgress, progress_id)
+        if not progress:
+            return False
+        log = list(progress.feedback_log or [])
+        log.append({
+            "date": datetime.utcnow().isoformat(),
+            "author_id": author_id,
+            "text": text,
+        })
+        progress.feedback_log = log
+        progress.updated_at = datetime.utcnow()
+        await session.commit()
+        return True
+
+
+async def complete_onboarding(progress_id: str, decision: str) -> bool:
+    """decision: accepted / extended / rejected"""
+    async with async_session() as session:
+        progress = await session.get(OnboardingProgress, progress_id)
+        if not progress:
+            return False
+        progress.decision = decision
+        progress.completed_at = datetime.utcnow()
+        progress.updated_at = datetime.utcnow()
+        await session.commit()
+        return True
+
+
+async def save_onboarding_shift_photo(newcomer_id: int, day_number: Optional[int], file_id: str) -> None:
+    async with async_session() as session:
+        photo = OnboardingShiftPhoto(newcomer_id=newcomer_id, day_number=day_number, file_id=file_id)
+        session.add(photo)
+        await session.commit()
+
+
+async def get_onboarding_shift_photos(newcomer_id: int, limit: int = 30) -> List[OnboardingShiftPhoto]:
+    from sqlalchemy import select
+    async with async_session() as session:
+        result = await session.execute(
+            select(OnboardingShiftPhoto)
+            .where(OnboardingShiftPhoto.newcomer_id == newcomer_id)
+            .order_by(OnboardingShiftPhoto.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
 
 # ─── Event CRUD ───
@@ -1018,6 +1200,18 @@ async def get_today_open_tasks_count(user_id: int, department: Optional[str]) ->
             )
         )
         return result.scalar() or 0
+
+
+async def get_users_on_shift() -> List[User]:
+    """Активные сотрудники, у которых прямо сейчас открыта смена (ShiftLog без ended_at)."""
+    from sqlalchemy import select
+    async with async_session() as session:
+        result = await session.execute(
+            select(User)
+            .join(ShiftLog, ShiftLog.user_id == User.telegram_id)
+            .where(User.status == "active", ShiftLog.ended_at == None)
+        )
+        return list(result.scalars().unique().all())
 
 
 async def get_active_workers(department: Optional[str] = None) -> List[User]:

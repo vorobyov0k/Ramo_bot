@@ -115,3 +115,31 @@ class TaskReassignState(StatesGroup):
 class MenuPhotoUploadState(StatesGroup):
     """FSM загрузки фото для позиции меню (admin)."""
     waiting_photo = State()
+
+
+class OnboardingStartState(StatesGroup):
+    """FSM запуска онбординга новичка (manager) — выбор новичка и ментора."""
+    waiting_newcomer = State()
+    waiting_mentor = State()
+
+
+class OnboardingIncidentState(StatesGroup):
+    """FSM фиксации инцидента новичка (manager/mentor)."""
+    waiting_newcomer = State()
+    waiting_category = State()
+    waiting_description = State()
+
+
+class OnboardingFeedbackState(StatesGroup):
+    """FSM еженедельного фидбэка ментора по новичку."""
+    waiting_text = State()
+
+
+class OnboardingTestState(StatesGroup):
+    """FSM теста знаний на день 21."""
+    in_progress = State()
+
+
+class OnboardingShiftPhotoState(StatesGroup):
+    """FSM фото бара в конце смены новичка."""
+    waiting_photo = State()

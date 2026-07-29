@@ -224,12 +224,13 @@ async def admin_users_by_role(callback: types.CallbackQuery):
 # ────────────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("admin:user:"))
-async def admin_user_detail(callback: types.CallbackQuery):
-    try:
-        user_id = int(callback.data.split(":")[2])
-    except (IndexError, ValueError):
-        await callback.answer("Ошибка", show_alert=True)
-        return
+async def admin_user_detail(callback: types.CallbackQuery, user_id: int = None):
+    if user_id is None:
+        try:
+            user_id = int(callback.data.split(":")[2])
+        except (IndexError, ValueError):
+            await callback.answer("Ошибка", show_alert=True)
+            return
 
     user = await get_user_by_telegram_id(user_id)
     if not user:
@@ -456,8 +457,7 @@ async def admin_user_role_set(callback: types.CallbackQuery, bot: Bot):
         await callback.answer("❌ Ошибка при сохранении", show_alert=True)
 
     # Возврат к карточке с обновлёнными данными
-    callback.data = f"admin:user:{user_id}"
-    await admin_user_detail(callback)
+    await admin_user_detail(callback, user_id)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -547,8 +547,7 @@ async def admin_user_pos_set(callback: types.CallbackQuery, bot: Bot):
         await callback.answer("❌ Ошибка при сохранении", show_alert=True)
 
     # Возврат к карточке с обновлёнными данными
-    callback.data = f"admin:user:{user_id}"
-    await admin_user_detail(callback)
+    await admin_user_detail(callback, user_id)
 
 
 @router.callback_query(F.data.startswith("admin:user_deactivate:"))
