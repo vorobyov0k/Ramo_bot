@@ -43,7 +43,7 @@ from bot.utils.positions import (
 )
 from bot.states.forms import (
     AdminBroadcastState, AdminEditRoleState, AdminEditPositionState,
-    AdminEditNameState, AdminCreateUserState, MenuPhotoUploadState,
+    AdminEditNameState, AdminCreateUserState, AdminBookingSearchState, MenuPhotoUploadState,
 )
 from bot.utils.menu_db import (
     get_categories, get_dishes_by_category, get_dish_by_id,
@@ -854,6 +854,9 @@ _AUDIT_EVENT_LABELS = {
     "task_deleted":     "🗑 Задача удалена",
     "task_reassigned":  "👤 Задача переназначена",
     "booking_accepted": "📋 Бронь принята",
+    "booking_deleted":  "🗑 Бронь удалена",
+    "announcement_deleted": "🗑 Анонс удалён",
+    "birthday_deleted": "🗑 День рождения удалён",
     "broadcast_sent":   "📣 Рассылка отправлена",
 }
 _AUDIT_PAGE_SIZE = 15
@@ -1473,6 +1476,7 @@ async def admin_events_mgmt(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="📋 Брони", callback_data="admin:evmgmt:booking")],
         [InlineKeyboardButton(text="📢 Анонсы", callback_data="admin:evmgmt:announcement")],
         [InlineKeyboardButton(text="🎂 Дни рождения", callback_data="admin:evmgmt:birthday")],
+        [InlineKeyboardButton(text="🗂 Архив броней", callback_data="admin:booking_archive:0")],
         _back_row("admin:panel"),
     ])
     await safe_edit(callback,
@@ -1481,6 +1485,118 @@ async def admin_events_mgmt(callback: types.CallbackQuery):
         parse_mode="HTML",
     )
     await callback.answer()
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Архив броней — приняты или удалены, но не стёрты из базы
+# ────────────────────────────────────────────────────────────────────────────
+
+_ARCHIVE_PAGE_SIZE = 10
+
+
+def _booking_card_line(e) -> str:
+    meta = e.meta or {}
+    date_str = e.event_date.strftime("%d.%m.%Y %H:%M")
+    status = "✅ Пришли" if meta.get("accepted_by") else "🗑 Не пришли/удалено"
+    guests = meta.get("guest_count", "?")
+    phone = meta.get("phone", "")
+    line = f"<b>{e.title}</b> — {date_str}\n👥 {guests}"
+    if phone:
+        line += f"  |  📞 {phone}"
+    line += f"\n{status}"
+    if meta.get("comment"):
+        line += f"\n💬 {meta['comment']}"
+    return line
+
+
+async def _render_booking_archive(bookings: list, page: int, header: str) -> tuple[str, InlineKeyboardMarkup]:
+    start = page * _ARCHIVE_PAGE_SIZE
+    page_items = bookings[start:start + _ARCHIVE_PAGE_SIZE]
+
+    if not bookings:
+        text = f"{header}\n\n<i>Архив пуст.</i>"
+    elif not page_items:
+        text = f"{header}\n\n<i>Больше записей нет.</i>"
+    else:
+        cards = [_booking_card_line(e) for e in page_items]
+        text = f"{header} ({len(bookings)}):\n\n" + "\n\n".join(cards)
+        if len(text) > 3900:
+            text = text[:3900] + "\n…"
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="← Новее", callback_data=f"admin:booking_archive:{page - 1}"))
+    if start + _ARCHIVE_PAGE_SIZE < len(bookings):
+        nav_row.append(InlineKeyboardButton(text="Старее →", callback_data=f"admin:booking_archive:{page + 1}"))
+
+    rows = [nav_row] if nav_row else []
+    rows.append([InlineKeyboardButton(text="🔎 Поиск по имени/телефону", callback_data="admin:booking_search")])
+    rows.append(_back_row("admin:events_mgmt"))
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data.startswith("admin:booking_archive:"))
+async def admin_booking_archive(callback: types.CallbackQuery):
+    from bot.utils.db_connector import get_archived_bookings
+    page = int(callback.data.split(":")[2])
+    bookings = await get_archived_bookings()
+    text, kb = await _render_booking_archive(bookings, page, "🗂 <b>Архив броней</b>")
+    await safe_edit(callback, text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:booking_search")
+async def admin_booking_search_start(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminBookingSearchState.waiting_query)
+    await safe_edit(callback,
+        "🔎 <b>Поиск по архиву броней</b>\n\n"
+        "Введите имя гостя или телефон (можно частично):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✖ Отмена", callback_data="admin:booking_archive:0")],
+        ]),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(AdminBookingSearchState.waiting_query)
+async def admin_booking_search_run(message: types.Message, state: FSMContext):
+    from bot.utils.db_connector import get_archived_bookings
+    query = (message.text or "").strip().lower()
+    await state.clear()
+
+    if len(query) < 2:
+        await message.answer("⚠️ Введите минимум 2 символа для поиска.")
+        return
+
+    all_bookings = await get_archived_bookings()
+    matched = [
+        e for e in all_bookings
+        if query in (e.title or "").lower() or query in ((e.meta or {}).get("phone", "") or "").lower()
+    ]
+
+    if not matched:
+        await message.answer(
+            f"🔎 По запросу «{message.text}» ничего не найдено.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="← В архив", callback_data="admin:booking_archive:0")],
+            ]),
+        )
+        return
+
+    cards = [_booking_card_line(e) for e in matched[:_ARCHIVE_PAGE_SIZE]]
+    text = f"🔎 <b>Найдено: {len(matched)}</b>\n\n" + "\n\n".join(cards)
+    if len(text) > 3900:
+        text = text[:3900] + "\n…"
+
+    await message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔎 Новый поиск", callback_data="admin:booking_search")],
+            [InlineKeyboardButton(text="← В архив", callback_data="admin:booking_archive:0")],
+        ]),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data.startswith("admin:evmgmt:"))
@@ -1531,7 +1647,8 @@ async def admin_evdel(callback: types.CallbackQuery):
     if not target:
         await callback.answer("Запись не найдена", show_alert=True)
         return
-    await delete_event(target.event_id)
+    actor = await get_user_by_telegram_id(callback.from_user.id)
+    await delete_event(target.event_id, callback.from_user.id, actor.full_name if actor else None)
     await callback.answer("🗑 Удалено", show_alert=True)
     await admin_events_mgmt(callback)
 

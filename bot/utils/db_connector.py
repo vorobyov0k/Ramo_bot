@@ -670,14 +670,31 @@ async def get_upcoming_events(event_type: Optional[str] = None, days: int = 30) 
         return list(result.scalars().all())
 
 
-async def delete_event(event_id: str) -> bool:
+async def get_archived_bookings(limit: int = 300) -> List["Event"]:
+    """Брони, вышедшие из активного списка (приняты или удалены) — архив для поиска по гостям."""
+    from sqlalchemy import select
+    async with async_session() as session:
+        query = (
+            select(Event)
+            .where(Event.event_type == "booking", Event.is_active == False)
+            .order_by(Event.event_date.desc())
+            .limit(limit)
+        )
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+
+async def delete_event(event_id: str, deleted_by: Optional[int] = None, deleted_by_name: Optional[str] = None) -> bool:
     async with async_session() as session:
         event = await session.get(Event, event_id)
         if not event:
             return False
         event.is_active = False
+        title = event.title
+        event_type = event.event_type
         await session.commit()
-        return True
+    await log_action(f"{event_type}_deleted", deleted_by, deleted_by_name, title)
+    return True
 
 
 async def log_action(

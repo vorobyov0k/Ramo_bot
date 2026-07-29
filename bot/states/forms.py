@@ -61,6 +61,11 @@ class AdminCreateUserState(StatesGroup):
     waiting_position = State()
 
 
+class AdminBookingSearchState(StatesGroup):
+    """Поиск по архиву броней (имя/телефон)."""
+    waiting_query = State()
+
+
 class EventAddBookingState(StatesGroup):
     """FSM для добавления брони."""
     waiting_name = State()
