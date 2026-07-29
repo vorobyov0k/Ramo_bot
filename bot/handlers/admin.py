@@ -1609,6 +1609,7 @@ async def _show_broadcast_targets(callback, text: str, source_label: str):
         [InlineKeyboardButton(text="🍺 Барменам",          callback_data="admin:broadcast_target:barman")],
         [InlineKeyboardButton(text="🍽 Официантам",        callback_data="admin:broadcast_target:waiter")],
         [InlineKeyboardButton(text="🥘 Поварам",           callback_data="admin:broadcast_target:cook")],
+        [InlineKeyboardButton(text="🔪 Су-шефам",         callback_data="admin:broadcast_target:sous_chef")],
         [InlineKeyboardButton(text="🍳 Шеф-поварам",      callback_data="admin:broadcast_target:chef")],
         [InlineKeyboardButton(text="🍸 Бар-менеджерам",   callback_data="admin:broadcast_target:bar_manager")],
         [InlineKeyboardButton(text="👔 Менеджерам",       callback_data="admin:broadcast_target:manager")],
