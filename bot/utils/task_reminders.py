@@ -99,21 +99,28 @@ async def send_manual_climate_notice(bot: Bot) -> tuple[Optional[str], int]:
     return text, sent
 
 
-async def _send_to_positions(bot: Bot, positions: set, text: str) -> None:
+async def _send_to_positions(bot: Bot, positions: set, text: str, log_kind: str) -> int:
     """Шлёт только тем, кто прямо сейчас на смене (ShiftLog открыт) — не всем подключённым к боту."""
     workers = await get_users_on_shift()
+    sent = 0
     for user in workers:
         if (user.position or "") in positions:
             try:
                 await bot.send_message(user.telegram_id, text, parse_mode="HTML")
+                sent += 1
             except Exception as e:
                 logger.warning(f"Рекомендация отделу: не отправлено {user.telegram_id}: {e}")
+    if sent:
+        from bot.utils.db_connector import log_action
+        await log_action(log_kind, target_label=text[:80], details=f"Получателей: {sent}")
+    return sent
 
 
 async def _check_bar_playlist(bot: Bot) -> None:
     await _send_to_positions(
         bot, BAR_POSITIONS,
         "🎵 <b>17:00 — время сменить плейлист на вечерний.</b>",
+        log_kind="bar_playlist_reminder_sent",
     )
 
 
@@ -121,6 +128,7 @@ async def _check_cleaning_journal(bot: Bot) -> None:
     await _send_to_positions(
         bot, CLEANING_POSITIONS,
         "🧻 <b>Напоминание:</b> заполни журнал гостевой уборной.",
+        log_kind="cleaning_reminder_sent",
     )
 
 
@@ -132,6 +140,7 @@ async def _check_windows(bot: Bot) -> None:
         bot, FLOOR_POSITIONS,
         f"☀️ <b>На улице {temp:.0f}°C — хорошая погода.</b>\n"
         "Можно открыть окна в зале для проветривания.",
+        log_kind="climate_hint_sent",
     )
 
 

@@ -516,7 +516,7 @@ async def admin_user_role_set(callback: types.CallbackQuery, bot: Bot):
         await callback.answer("Ошибка", show_alert=True)
         return
 
-    ok = await update_user_role(user_id, new_role)
+    ok = await update_user_role(user_id, new_role, actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
     role_label = get_role_display_ui(new_role)
     if ok:
         await callback.answer(f"✅ Роль изменена на {role_label}", show_alert=True)
@@ -657,7 +657,7 @@ async def admin_user_pos_set(callback: types.CallbackQuery, bot: Bot):
         await callback.answer("Ошибка", show_alert=True)
         return
 
-    ok = await update_user_position(user_id, new_pos)
+    ok = await update_user_position(user_id, new_pos, actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
     pos_label = POSITION_MAP.get(new_pos, (new_pos,))[0]
     if ok:
         await callback.answer(f"✅ Должность: {pos_label}", show_alert=True)
@@ -819,7 +819,7 @@ async def admin_approve_user(callback: types.CallbackQuery, bot: Bot):
         await callback.answer("Пользователь не найден", show_alert=True)
         return
 
-    await approve_user(user_id)
+    await approve_user(user_id, actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
     await callback.answer("✅ Одобрен", show_alert=True)
 
     try:
@@ -845,7 +845,7 @@ async def admin_reject_user(callback: types.CallbackQuery, bot: Bot):
         return
 
     user = await get_user_by_telegram_id(user_id)
-    await reject_user(user_id)
+    await reject_user(user_id, actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
     await callback.answer("❌ Отклонён", show_alert=True)
 
     if user:
@@ -897,7 +897,22 @@ _AUDIT_EVENT_LABELS = {
     "birthday_deleted":     "🗑 День рождения удалён",
     "holiday_created":      "🎉 Праздник добавлен",
     "broadcast_sent":       "📣 Рассылка отправлена",
-    "climate_notice_sent":  "🌡 Оповещение о климате",
+    "climate_notice_sent":  "🌡 Оповещение о климате (вручную)",
+    "shift_started":        "🟢 Смена начата",
+    "shift_ended":          "🔴 Смена завершена",
+    "registration_approved": "✅ Заявка одобрена",
+    "registration_rejected": "❌ Заявка отклонена",
+    "user_role_changed":    "🎭 Роль изменена",
+    "user_position_changed": "💼 Должность изменена",
+    "bar_playlist_reminder_sent": "🎵 Напоминание: плейлист бару",
+    "cleaning_reminder_sent": "🧻 Напоминание: журнал уборной",
+    "climate_hint_sent":    "🌡 Оповещение о климате (авто)",
+    "morning_briefing_sent": "🗣 Утренний бриф разослан",
+    "shift_changeover_reminder_sent": "🔄 Напоминание о пересменке",
+    "onboarding_stoplist_reminder_sent": "⏰ Напоминание: стоп-лист",
+    "onboarding_brief_sent": "🗣 Бриф онбординга разослан",
+    "onboarding_started":   "🎓 Онбординг начат",
+    "onboarding_decision_made": "🎓 Решение по онбордингу",
 }
 _AUDIT_PAGE_SIZE = 10
 

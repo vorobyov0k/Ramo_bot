@@ -28,6 +28,7 @@ _sent_today: set = set()  # (date_str, time_str)
 
 async def _send_stoplist_reminder(bot: Bot) -> None:
     progresses = await get_all_active_onboardings()
+    sent = 0
     for progress in progresses:
         day = _day_number(progress)
         if day > 30:
@@ -40,12 +41,17 @@ async def _send_stoplist_reminder(bot: Bot) -> None:
                 "спроси менеджера, если не уверен(а).",
                 parse_mode="HTML",
             )
+            sent += 1
         except Exception as e:
             logger.warning(f"Онбординг: не отправлено напоминание {progress.newcomer_id}: {e}")
+    if sent:
+        from bot.utils.db_connector import log_action
+        await log_action("onboarding_stoplist_reminder_sent", details=f"Получателей: {sent}")
 
 
 async def _send_brief_reminder(bot: Bot) -> None:
     progresses = await get_all_active_onboardings()
+    sent = 0
     for progress in progresses:
         day = _day_number(progress)
         if day > 30:
@@ -58,6 +64,7 @@ async def _send_brief_reminder(bot: Bot) -> None:
                 "Стоп-лист · события дня · задачи · вопросы.",
                 parse_mode="HTML",
             )
+            sent += 1
         except Exception as e:
             logger.warning(f"Онбординг: не отправлен бриф {progress.newcomer_id}: {e}")
 
@@ -72,8 +79,12 @@ async def _send_brief_reminder(bot: Bot) -> None:
                         f"🗣 <b>Бриф по подопечному {name}</b> — день {day}.",
                         parse_mode="HTML",
                     )
+                    sent += 1
                 except Exception as e:
                     logger.warning(f"Онбординг: не отправлен бриф ментору {progress.mentor_id}: {e}")
+    if sent:
+        from bot.utils.db_connector import log_action
+        await log_action("onboarding_brief_sent", details=f"Получателей: {sent}")
 
 
 async def scheduler_loop(bot: Bot) -> None:

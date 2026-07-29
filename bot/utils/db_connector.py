@@ -344,29 +344,37 @@ async def approve_user(
     telegram_id: int,
     role: Optional[str] = None,
     position: Optional[str] = None,
+    actor_id: Optional[int] = None,
+    actor_name: Optional[str] = None,
 ) -> None:
     from bot.utils.positions import position_to_department
     async with async_session() as session:
         user = await session.get(User, telegram_id)
-        if user:
-            user.status = "active"
-            user.active = True
-            user.role = role or user.requested_role
-            if position:
-                user.position = position
-                user.department = position_to_department(position)
-            elif user.position:
-                user.department = position_to_department(user.position)
-            await session.commit()
+        if not user:
+            return
+        user.status = "active"
+        user.active = True
+        user.role = role or user.requested_role
+        if position:
+            user.position = position
+            user.department = position_to_department(position)
+        elif user.position:
+            user.department = position_to_department(user.position)
+        name = user.full_name
+        await session.commit()
+    await log_action("registration_approved", actor_id, actor_name, name)
 
 
-async def reject_user(telegram_id: int) -> None:
+async def reject_user(telegram_id: int, actor_id: Optional[int] = None, actor_name: Optional[str] = None) -> None:
     async with async_session() as session:
         user = await session.get(User, telegram_id)
-        if user:
-            user.status = "rejected"
-            user.active = False
-            await session.commit()
+        if not user:
+            return
+        user.status = "rejected"
+        user.active = False
+        name = user.full_name
+        await session.commit()
+    await log_action("registration_rejected", actor_id, actor_name, name)
 
 
 async def save_checklist_execution(
@@ -492,6 +500,13 @@ async def start_onboarding(newcomer_id: int, mentor_id: Optional[int] = None) ->
         )
         session.add(progress)
         await session.commit()
+    newcomer = await get_user_by_telegram_id(newcomer_id)
+    mentor = await get_user_by_telegram_id(mentor_id) if mentor_id else None
+    await log_action(
+        "onboarding_started", None, None,
+        newcomer.full_name if newcomer else str(newcomer_id),
+        details=f"Ментор: {mentor.full_name if mentor else '—'}",
+    )
     return progress_id
 
 
@@ -595,8 +610,15 @@ async def complete_onboarding(progress_id: str, decision: str) -> bool:
         progress.decision = decision
         progress.completed_at = datetime.utcnow()
         progress.updated_at = datetime.utcnow()
+        newcomer_id = progress.newcomer_id
         await session.commit()
-        return True
+    newcomer = await get_user_by_telegram_id(newcomer_id)
+    await log_action(
+        "onboarding_decision_made", None, None,
+        newcomer.full_name if newcomer else str(newcomer_id),
+        details=decision,
+    )
+    return True
 
 
 async def save_onboarding_shift_photo(newcomer_id: int, day_number: Optional[int], file_id: str) -> None:
@@ -788,26 +810,30 @@ async def get_all_users(status: Optional[str] = None) -> List[User]:
         return list(result.scalars().all())
 
 
-async def update_user_role(telegram_id: int, new_role: str) -> bool:
+async def update_user_role(telegram_id: int, new_role: str, actor_id: Optional[int] = None, actor_name: Optional[str] = None) -> bool:
     async with async_session() as session:
         user = await session.get(User, telegram_id)
         if not user:
             return False
+        old_role, name = user.role, user.full_name
         user.role = new_role
         await session.commit()
-        return True
+    await log_action("user_role_changed", actor_id, actor_name, name, details=f"{old_role} → {new_role}")
+    return True
 
 
-async def update_user_position(telegram_id: int, new_position: str) -> bool:
+async def update_user_position(telegram_id: int, new_position: str, actor_id: Optional[int] = None, actor_name: Optional[str] = None) -> bool:
     from bot.utils.positions import position_to_department
     async with async_session() as session:
         user = await session.get(User, telegram_id)
         if not user:
             return False
+        old_position, name = user.position, user.full_name
         user.position = new_position
         user.department = position_to_department(new_position)
         await session.commit()
-        return True
+    await log_action("user_position_changed", actor_id, actor_name, name, details=f"{old_position} → {new_position}")
+    return True
 
 
 async def deactivate_user(telegram_id: int) -> bool:
@@ -1287,6 +1313,7 @@ async def open_shift(user_id: int, user_name: str) -> str:
         shift = ShiftLog(shift_id=shift_id, user_id=user_id, user_name=user_name)
         session.add(shift)
         await session.commit()
+    await log_action("shift_started", user_id, user_name)
     return shift_id
 
 
@@ -1298,8 +1325,10 @@ async def close_shift(shift_id: str, comment: Optional[str] = None) -> bool:
             return False
         shift.ended_at = datetime.utcnow()
         shift.close_comment = comment
+        user_id, user_name = shift.user_id, shift.user_name
         await session.commit()
-        return True
+    await log_action("shift_ended", user_id, user_name, details=comment)
+    return True
 
 
 # ─── Счётчики для home screen ───

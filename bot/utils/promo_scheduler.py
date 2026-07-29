@@ -105,6 +105,9 @@ async def do_morning_briefing(bot: Bot) -> None:
             logger.warning(f"Утренний бриф: не отправлено {user.telegram_id}: {e}")
 
     logger.info(f"Утренний бриф: отправлено {sent} сотрудникам на смене")
+    if sent:
+        from bot.utils.db_connector import log_action
+        await log_action("morning_briefing_sent", details=f"Получателей: {sent}")
 
 
 # Пересменка реально происходит у официантов; у остальных — редко.
@@ -132,6 +135,9 @@ async def do_shift_changeover_reminder(bot: Bot) -> None:
             logger.warning(f"Напоминание о пересменке: не отправлено {user.telegram_id}: {e}")
 
     logger.info(f"Напоминание о пересменке: отправлено {sent} официантам на смене")
+    if sent:
+        from bot.utils.db_connector import log_action
+        await log_action("shift_changeover_reminder_sent", details=f"Получателей: {sent}")
 
 
 async def scheduler_loop(bot: Bot) -> None:

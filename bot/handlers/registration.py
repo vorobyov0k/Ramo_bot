@@ -198,7 +198,7 @@ async def admin_approve(callback: types.CallbackQuery):
         return
 
     role = forced_role or user.requested_role or "barman"
-    await approve_user(user_id, role=role)
+    await approve_user(user_id, role=role, actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
 
     await callback.message.edit_text(
         f"✅ <b>Заявка одобрена</b>\n\n"
@@ -227,7 +227,7 @@ async def admin_reject(callback: types.CallbackQuery):
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    await reject_user(user_id)
+    await reject_user(user_id, actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
 
     await callback.message.edit_text(f"❌ <b>Заявка отклонена</b>\n\nФИО: <b>{user.full_name}</b>")
     await callback.bot.send_message(chat_id=user_id, text="❌ <b>Ваша заявка отклонена.</b>")
