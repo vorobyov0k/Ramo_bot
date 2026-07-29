@@ -73,8 +73,12 @@ def _build_home_keyboard(position: str, has_active_shift: bool, has_onboarding: 
             InlineKeyboardButton(text="📋 Задачи и передача смены", callback_data="menu:tasks_handover"),
         ],
         [InlineKeyboardButton(text="🆘 Инцидент", callback_data="menu:incident")],
-        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")],
     ]
+
+    if role in _PANEL_ROLES:
+        buttons.append([InlineKeyboardButton(text="🔧 Режим модерации", callback_data="admin:panel")])
+    else:
+        buttons.append([InlineKeyboardButton(text="⚙️ Настройки", callback_data="menu:settings")])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
