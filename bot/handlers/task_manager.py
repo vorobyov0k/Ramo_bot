@@ -32,6 +32,7 @@ from bot.utils.db_connector import (
     complete_task_db,
     reassign_task_db,
     cancel_task_db,
+    delete_task_db,
     add_task_comment_db,
     update_task_priority,
     update_task_deadline,
@@ -793,11 +794,13 @@ async def tm_task_detail(callback: types.CallbackQuery, task_id: str = None):
     elif task.status == "cancelled":
         rows.append([
             InlineKeyboardButton(text="💬 Комментарий", callback_data=f"tme:{task_id}:comment"),
+            InlineKeyboardButton(text="🗑 Удалить",     callback_data=f"tme:{task_id}:delete"),
         ])
     else:
-        # done — только комментарий
+        # done — комментарий + удаление
         rows.append([
             InlineKeyboardButton(text="💬 Комментарий", callback_data=f"tme:{task_id}:comment"),
+            InlineKeyboardButton(text="🗑 Удалить",     callback_data=f"tme:{task_id}:delete"),
         ])
 
     rows.append([InlineKeyboardButton(text="← Список задач", callback_data="tm:list:all:all:0")])
@@ -887,6 +890,35 @@ async def tme_dispatch(callback: types.CallbackQuery, state: FSMContext, bot: Bo
         await cancel_task_db(task_id, user.telegram_id)
         await callback.answer("🚫 Задача отменена")
         await tm_task_detail(callback, task_id)
+        return
+
+    # ── Удаление задачи ──
+    if action == "delete":
+        if task.status not in ("done", "cancelled"):
+            await callback.answer("⚠️ Удалить можно только выполненные или отменённые задачи", show_alert=True)
+            return
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Да, удалить", callback_data=f"tme:{task_id}:do_delete")],
+            [InlineKeyboardButton(text="← Назад",        callback_data=f"tm:task:{task_id}")],
+        ])
+        await callback.message.edit_text(
+            f"🗑 Удалить задачу <b>{task.title}</b>?\n\n<i>Задача будет удалена безвозвратно.</i>",
+            reply_markup=kb, parse_mode="HTML",
+        )
+        await callback.answer()
+        return
+
+    if action == "do_delete":
+        deleted = await delete_task_db(task_id)
+        if deleted:
+            await callback.answer("🗑 Задача удалена")
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="← Список задач", callback_data="tm:list:all:all:0")],
+                [InlineKeyboardButton(text="← Управление",   callback_data="tm:main")],
+            ])
+            await callback.message.edit_text("✅ Задача удалена.", reply_markup=kb, parse_mode="HTML")
+        else:
+            await callback.answer("❌ Не удалось удалить (возможно, уже удалена)", show_alert=True)
         return
 
     # ── Комментарий ──

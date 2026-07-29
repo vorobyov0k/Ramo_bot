@@ -1081,6 +1081,17 @@ async def cancel_task_db(task_id: str, cancelled_by: int) -> bool:
         return True
 
 
+async def delete_task_db(task_id: str) -> bool:
+    """Удаляет задачу. Только для статусов done/cancelled."""
+    async with async_session() as session:
+        task = await session.get(Task, task_id)
+        if not task or task.status not in ("done", "cancelled"):
+            return False
+        await session.delete(task)
+        await session.commit()
+        return True
+
+
 async def add_task_comment_db(
     task_id: str, user_id: int, user_name: str, text: str
 ) -> bool:
