@@ -109,7 +109,7 @@ def get_drinks_by_category(category_name: str) -> List[dict]:
         """
         SELECT d.id, d.name, d.price,
                d.is_non_alcoholic, d.is_vegetarian, d.is_new, d.is_healthy,
-               d.description, d.photo_id
+               d.description, d.photo_id, d.volume_ml, d.composition
         FROM drinks d
         JOIN categories cat ON d.category_id = cat.id
         WHERE cat.name = ? AND cat.type = 'bar'
@@ -125,6 +125,7 @@ def get_drinks_by_category(category_name: str) -> List[dict]:
             "is_non_alcoholic": r[3], "is_vegetarian": r[4],
             "is_new": r[5], "is_healthy": r[6],
             "description": r[7], "photo_id": r[8],
+            "volume_ml": r[9], "composition": r[10],
         }
         for r in rows
     ]
@@ -137,7 +138,7 @@ def get_drink_by_id(drink_id: int) -> Optional[dict]:
         """
         SELECT d.id, d.name, d.price,
                d.is_non_alcoholic, d.is_vegetarian, d.is_new, d.is_healthy,
-               d.description, d.photo_id, cat.name
+               d.description, d.photo_id, cat.name, d.volume_ml, d.composition
         FROM drinks d
         JOIN categories cat ON d.category_id = cat.id
         WHERE d.id = ?
@@ -154,6 +155,7 @@ def get_drink_by_id(drink_id: int) -> Optional[dict]:
         "is_new": r[5], "is_healthy": r[6],
         "description": r[7], "photo_id": r[8],
         "category_name": r[9],
+        "volume_ml": r[10], "composition": r[11],
     }
 
 
