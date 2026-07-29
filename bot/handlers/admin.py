@@ -18,6 +18,7 @@ from bot.utils.db_connector import (
     reject_user,
     update_user_role,
     update_user_position,
+    update_user_name,
     deactivate_user,
     delete_user,
     get_recent_checklists,
@@ -41,7 +42,7 @@ from bot.utils.positions import (
 )
 from bot.states.forms import (
     AdminBroadcastState, AdminEditRoleState, AdminEditPositionState,
-    AdminCreateUserState, MenuPhotoUploadState,
+    AdminEditNameState, AdminCreateUserState, MenuPhotoUploadState,
 )
 from bot.utils.menu_db import (
     get_categories, get_dishes_by_category, get_dish_by_id,
@@ -256,6 +257,7 @@ async def admin_user_detail(callback: types.CallbackQuery, user_id: int = None):
             InlineKeyboardButton(text="✏️ Изменить роль",     callback_data=f"admin:user_role:{user_id}"),
             InlineKeyboardButton(text="✏️ Назначить должность", callback_data=f"admin:user_pos:{user_id}"),
         ],
+        [InlineKeyboardButton(text="✏️ Изменить имя", callback_data=f"admin:user_name:{user_id}")],
         [InlineKeyboardButton(text="🚫 Заблокировать", callback_data=f"admin:user_deactivate:{user_id}")],
         [InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"admin:user_delete:{user_id}")],
         _back_row("admin:users", "← К списку"),
@@ -458,6 +460,58 @@ async def admin_user_role_set(callback: types.CallbackQuery, bot: Bot):
 
     # Возврат к карточке с обновлёнными данными
     await admin_user_detail(callback, user_id)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Изменить имя пользователя
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("admin:user_name:"))
+async def admin_user_name_start(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        user_id = int(callback.data.split(":")[2])
+    except (IndexError, ValueError):
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    user = await get_user_by_telegram_id(user_id)
+    if not user:
+        await callback.answer("Пользователь не найден", show_alert=True)
+        return
+
+    await state.set_state(AdminEditNameState.waiting_new_name)
+    await state.update_data(target_user_id=user_id)
+    await safe_edit(callback,
+        f"✏️ <b>Изменить имя</b>\n\n"
+        f"Текущее имя: <b>{user.full_name or '—'}</b>\n\n"
+        f"Введите новое ФИО:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✖ Отмена", callback_data=f"admin:user:{user_id}")],
+        ]),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(AdminEditNameState.waiting_new_name)
+async def admin_user_name_save(message: types.Message, state: FSMContext):
+    new_name = message.text.strip() if message.text else ""
+    if len(new_name) < 2:
+        await message.answer("⚠️ Имя слишком короткое. Введите полное ФИО:")
+        return
+
+    data = await state.get_data()
+    user_id = data.get("target_user_id")
+    await state.clear()
+
+    ok = await update_user_name(user_id, new_name)
+    if ok:
+        await message.answer(
+            f"✅ Имя обновлено: <b>{new_name}</b>",
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer("❌ Не удалось обновить имя.")
 
 
 # ────────────────────────────────────────────────────────────────────────────

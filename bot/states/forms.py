@@ -50,6 +50,11 @@ class AdminEditPositionState(StatesGroup):
     waiting_new_position = State()
 
 
+class AdminEditNameState(StatesGroup):
+    """Смена имени пользователя."""
+    waiting_new_name = State()
+
+
 class AdminCreateUserState(StatesGroup):
     """Создание нового пользователя (admin/owner)."""
     waiting_name = State()
