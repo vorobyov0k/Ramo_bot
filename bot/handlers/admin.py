@@ -1351,6 +1351,7 @@ async def admin_fsm_text_handler(message: types.Message, state: FSMContext):
             [InlineKeyboardButton(text="🍺 Барменам",          callback_data="admin:broadcast_target:barman")],
             [InlineKeyboardButton(text="🍽 Официантам",        callback_data="admin:broadcast_target:waiter")],
             [InlineKeyboardButton(text="🥘 Поварам",           callback_data="admin:broadcast_target:cook")],
+            [InlineKeyboardButton(text="🔪 Су-шефам",         callback_data="admin:broadcast_target:sous_chef")],
             [InlineKeyboardButton(text="🍳 Шеф-поварам",      callback_data="admin:broadcast_target:chef")],
             [InlineKeyboardButton(text="🍸 Бар-менеджерам",   callback_data="admin:broadcast_target:bar_manager")],
             [InlineKeyboardButton(text="👔 Менеджерам",       callback_data="admin:broadcast_target:manager")],
@@ -1672,10 +1673,14 @@ async def admin_broadcast_confirm(callback: types.CallbackQuery, state: FSMConte
     text = data.get("broadcast_text", "")
     await state.clear()
 
+    # Рассылка поварам дополнительно доходит до су-шефов — они часть кухонной смены.
+    _TARGET_POSITIONS = {"cook": {"cook", "sous_chef"}}
+    target_positions = _TARGET_POSITIONS.get(target, {target})
+
     users = await get_all_users(status="active")
     if target != "all":
         # Рассылка по должности (position) или по роли (role, только для админов и владельцев)
-        users = [u for u in users if u.position == target or u.role == target]
+        users = [u for u in users if u.position in target_positions or u.role == target]
 
     sent = 0
     failed = 0
