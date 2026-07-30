@@ -14,6 +14,7 @@ from bot.utils.db_connector import (
     get_today_events_count,
     get_today_open_tasks_count,
     get_active_onboarding,
+    get_open_checklists_count,
 )
 from bot.utils.positions import (
     get_position_display, get_user_checklists, get_role_display_ui, MODERATOR_ROLES,
@@ -39,6 +40,13 @@ _ROLE_DEPT = {
     "cook": "kitchen",
     "chef": "kitchen",
     "cleaning": "cleaning",
+}
+_DEPT_DISPLAY = {
+    "bar": "🍸 Бар",
+    "restaurant": "🍽 Ресторан",
+    "kitchen": "🍳 Кухня",
+    "cleaning": "🧹 Уборка",
+    "technician": "🔧 Техника",
 }
 _WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
 _MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
@@ -90,24 +98,33 @@ async def build_home_screen(user) -> tuple[str, InlineKeyboardMarkup]:
 
     events_count = await get_today_events_count()
     tasks_count = await get_today_open_tasks_count(user.telegram_id, department)
+    checklists_count = await get_open_checklists_count(user.telegram_id)
     active_shift = await get_active_shift(user.telegram_id)
     onboarding = await get_active_onboarding(user.telegram_id)
 
     today = _today_str()
+    dept_display = _DEPT_DISPLAY.get(department, "")
+
+    header_line = f"👔 {_position_with_onboarding_badge(position_display, onboarding)}"
+    if dept_display:
+        header_line += f"  ·  {dept_display}"
+    header_line += f"\n📅 {today}"
 
     lines = [
         f"👋 <b>Привет, {user.full_name}!</b>",
-        f"👔 {_position_with_onboarding_badge(position_display, onboarding)}  |  📅 {today}",
+        header_line,
         "",
     ]
 
     # Блок "сегодня"
-    if events_count or tasks_count:
+    if events_count or tasks_count or checklists_count:
         lines.append("📌 <b>Сегодня:</b>")
         if events_count:
             lines.append(f"  • 🗓 Событий: <b>{events_count}</b>")
         if tasks_count:
             lines.append(f"  • 📋 Открытых задач: <b>{tasks_count}</b>")
+        if checklists_count:
+            lines.append(f"  • ✅ Открытых чек-листов: <b>{checklists_count}</b>")
         lines.append("")
 
     if active_shift:

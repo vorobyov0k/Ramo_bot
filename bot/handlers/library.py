@@ -14,6 +14,41 @@ from bot.utils.menu_db import (
 router = Router()
 logger = logging.getLogger(__name__)
 
+# Иконки категорий меню — по точному названию категории в БД.
+_KITCHEN_CATEGORY_ICONS = {
+    "Горячие блюда":    "🍽️",
+    "Горячие закуски":  "🥟",
+    "Салаты":           "🥗",
+    "Супы":             "🍲",
+    "Холодные закуски": "🍤",
+    "Завтраки":         "🍳",
+    "Добавки":          "🍟",
+}
+_BAR_CATEGORY_ICONS = {
+    "Кофе":                     "☕",
+    "Чаи":                      "🫖",
+    "Не кофе":                  "🍫",
+    "Напитки в стекле":         "🧃",
+    "Лимонады":                 "🍋",
+    "Пиво и сидр":              "🍺",
+    "Вина":                     "🍷",
+    "Игристые вина":            "🍾",
+    "Белые вина":               "🥂",
+    "Красные вина":             "🍷",
+    "Крепкое":                  "🥃",
+    "Коктейли":                 "🍸",
+    "Безалкогольные коктейли":  "🍹",
+    "Настойки":                 "🧪",
+}
+
+
+def _kitchen_icon(name: str) -> str:
+    return _KITCHEN_CATEGORY_ICONS.get(name, "🍴")
+
+
+def _bar_icon(name: str) -> str:
+    return _BAR_CATEGORY_ICONS.get(name, "🍷")
+
 
 def _back_btn(target: str = "menu:library", label: str = "← Назад"):
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -551,7 +586,7 @@ async def kitchen_menu_categories(callback: types.CallbackQuery):
         return
 
     buttons = [
-        [InlineKeyboardButton(text=cat["name"], callback_data=f"lib:kitchen_cat:{cat['name']}")]
+        [InlineKeyboardButton(text=f"{_kitchen_icon(cat['name'])} {cat['name']}", callback_data=f"lib:kitchen_cat:{cat['name']}")]
         for cat in cats
     ]
     buttons.append(_back_row())
@@ -662,10 +697,10 @@ async def bar_menu_categories(callback: types.CallbackQuery):
                 continue
             seen_groups.add(cat["group_name"])
             buttons.append([InlineKeyboardButton(
-                text=cat["group_name"], callback_data=f"lib:bar_group:{cat['group_name']}"
+                text=f"{_bar_icon(cat['group_name'])} {cat['group_name']}", callback_data=f"lib:bar_group:{cat['group_name']}"
             )])
         else:
-            buttons.append([InlineKeyboardButton(text=cat["name"], callback_data=f"lib:bar_cat:{cat['name']}")])
+            buttons.append([InlineKeyboardButton(text=f"{_bar_icon(cat['name'])} {cat['name']}", callback_data=f"lib:bar_cat:{cat['name']}")])
     buttons.append(_back_row())
 
     await _edit_or_resend(
@@ -687,7 +722,7 @@ async def bar_group_categories(callback: types.CallbackQuery):
         return
 
     buttons = [
-        [InlineKeyboardButton(text=cat["name"], callback_data=f"lib:bar_cat:{cat['name']}")]
+        [InlineKeyboardButton(text=f"{_bar_icon(cat['name'])} {cat['name']}", callback_data=f"lib:bar_cat:{cat['name']}")]
         for cat in cats
     ]
     buttons.append(_back_row("lib:bar"))

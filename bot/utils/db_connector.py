@@ -876,6 +876,21 @@ async def get_recent_checklists(limit: int = 20) -> List[ChecklistExecution]:
         return list(result.scalars().all())
 
 
+async def get_open_checklists_count(user_id: int) -> int:
+    """Количество открытых (in_progress) чек-листов у пользователя."""
+    from sqlalchemy import select
+    async with async_session() as session:
+        result = await session.execute(
+            select(ChecklistExecution)
+            .where(
+                (ChecklistExecution.user_id == user_id)
+                & (ChecklistExecution.status == "in_progress")
+                & (ChecklistExecution.archived == False)
+            )
+        )
+        return len(list(result.scalars().all()))
+
+
 async def archive_checklist(execution_id: str) -> bool:
     async with async_session() as session:
         ex = await session.get(ChecklistExecution, execution_id)
