@@ -75,7 +75,7 @@ def _build_home_keyboard(position: str, has_active_shift: bool, has_onboarding: 
     buttons += [
         [
             InlineKeyboardButton(text="📚 Библиотека",         callback_data="menu:library"),
-            InlineKeyboardButton(text="🎁 Акции и события",    callback_data="menu:promos_events"),
+            InlineKeyboardButton(text="📅 События",            callback_data="menu:events"),
         ],
         [
             InlineKeyboardButton(text="📋 Задачи и передача смены", callback_data="menu:tasks_handover"),
@@ -97,7 +97,7 @@ async def build_home_screen(user) -> tuple[str, InlineKeyboardMarkup]:
     department = _ROLE_DEPT.get(user.position or user.role or "")
 
     events_count = await get_today_events_count()
-    tasks_count = await get_today_open_tasks_count(user.telegram_id, department)
+    tasks_count = await get_today_open_tasks_count(user.telegram_id, department, role=user.role)
     checklists_count = await get_open_checklists_count(user.telegram_id)
     active_shift = await get_active_shift(user.telegram_id)
     onboarding = await get_active_onboarding(user.telegram_id)
