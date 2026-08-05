@@ -44,11 +44,13 @@ from bot.utils.positions import (
 from bot.states.forms import (
     AdminBroadcastState, AdminEditRoleState, AdminEditPositionState,
     AdminEditNameState, AdminCreateUserState, AdminBookingSearchState, MenuPhotoUploadState,
+    MenuTextEditState,
 )
 from bot.utils.menu_db import (
     get_categories, get_dishes_by_category, get_dish_by_id,
     get_drinks_by_category, get_drink_by_id,
     update_dish_photo, update_drink_photo,
+    update_drink_composition, update_drink_description,
 )
 from bot.utils.tg_helpers import safe_edit
 
@@ -2177,17 +2179,110 @@ async def admin_mphoto_drink_card(callback: types.CallbackQuery, state: FSMConte
         return
 
     status = "✅ Фото загружено" if drink["photo_id"] else "📷 Фото не загружено"
+    composition = drink.get("composition") or "— не заполнено —"
+    description = drink.get("description") or "— не заполнено —"
     text = (
         f"🍷 <b>{drink['name']}</b>\n\n"
         f"{status}\n\n"
-        "Нажмите «📸 Загрузить фото», затем отправьте фотографию."
+        f"<b>Состав:</b>\n{composition}\n\n"
+        f"<b>Вкусовой профиль:</b>\n{description}"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📸 Загрузить фото", callback_data=f"admin:mphoto_upload_b:{drink_id}")],
+        [InlineKeyboardButton(text="✏️ Редактировать состав", callback_data=f"admin:mtext_comp:{drink_id}")],
+        [InlineKeyboardButton(text="✏️ Редактировать описание", callback_data=f"admin:mtext_desc:{drink_id}")],
         [InlineKeyboardButton(text="← К списку", callback_data=f"admin:mphoto_bc:{drink['category_name']}")],
     ])
     await safe_edit(callback, text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:mtext_comp:"))
+async def admin_mtext_comp_start(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        drink_id = int(callback.data[len("admin:mtext_comp:"):])
+    except ValueError:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    await state.set_state(MenuTextEditState.waiting_composition)
+    await state.update_data(drink_id=drink_id)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"admin:mphoto_drink:{drink_id}")],
+    ])
+    await safe_edit(callback,
+        "✏️ <b>Редактирование состава</b>\n\nОтправьте текст состава (ингредиенты + граммовка) одним сообщением:",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:mtext_desc:"))
+async def admin_mtext_desc_start(callback: types.CallbackQuery, state: FSMContext):
+    try:
+        drink_id = int(callback.data[len("admin:mtext_desc:"):])
+    except ValueError:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    await state.set_state(MenuTextEditState.waiting_description)
+    await state.update_data(drink_id=drink_id)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"admin:mphoto_drink:{drink_id}")],
+    ])
+    await safe_edit(callback,
+        "✏️ <b>Редактирование вкусового профиля</b>\n\nОтправьте краткое описание вкуса одним сообщением:",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(MenuTextEditState.waiting_composition)
+async def admin_mtext_comp_receive(message: types.Message, state: FSMContext):
+    if not message.text or not message.text.strip():
+        await message.answer("⚠️ Пожалуйста, отправьте <b>текст</b> состава.", parse_mode="HTML")
+        return
+
+    data = await state.get_data()
+    drink_id = data.get("drink_id")
+    ok = update_drink_composition(drink_id, message.text.strip())
+    drink = get_drink_by_id(drink_id)
+    await state.clear()
+
+    name = drink["name"] if drink else str(drink_id)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="← К карточке", callback_data=f"admin:mphoto_drink:{drink_id}")],
+    ])
+    if ok:
+        await message.answer(f"✅ <b>Состав сохранён</b>\n\n{name}", reply_markup=keyboard, parse_mode="HTML")
+    else:
+        await message.answer("❌ Не удалось сохранить состав. Попробуйте ещё раз.", reply_markup=keyboard)
+
+
+@router.message(MenuTextEditState.waiting_description)
+async def admin_mtext_desc_receive(message: types.Message, state: FSMContext):
+    if not message.text or not message.text.strip():
+        await message.answer("⚠️ Пожалуйста, отправьте <b>текст</b> описания.", parse_mode="HTML")
+        return
+
+    data = await state.get_data()
+    drink_id = data.get("drink_id")
+    ok = update_drink_description(drink_id, message.text.strip())
+    drink = get_drink_by_id(drink_id)
+    await state.clear()
+
+    name = drink["name"] if drink else str(drink_id)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="← К карточке", callback_data=f"admin:mphoto_drink:{drink_id}")],
+    ])
+    if ok:
+        await message.answer(f"✅ <b>Описание сохранено</b>\n\n{name}", reply_markup=keyboard, parse_mode="HTML")
+    else:
+        await message.answer("❌ Не удалось сохранить описание. Попробуйте ещё раз.", reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("admin:mphoto_upload_d:"))

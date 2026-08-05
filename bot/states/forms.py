@@ -127,6 +127,12 @@ class MenuPhotoUploadState(StatesGroup):
     waiting_photo = State()
 
 
+class MenuTextEditState(StatesGroup):
+    """FSM ручного редактирования состава/описания напитка (admin)."""
+    waiting_composition = State()
+    waiting_description = State()
+
+
 class OnboardingStartState(StatesGroup):
     """FSM запуска онбординга новичка (manager) — выбор новичка и ментора."""
     waiting_newcomer = State()

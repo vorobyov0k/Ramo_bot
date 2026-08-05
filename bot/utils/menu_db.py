@@ -179,6 +179,26 @@ def update_drink_photo(drink_id: int, photo_id: str) -> bool:
     return changed
 
 
+def update_drink_composition(drink_id: int, composition: str) -> bool:
+    conn = sqlite3.connect(_MENU_DB)
+    c = conn.cursor()
+    c.execute("UPDATE drinks SET composition = ? WHERE id = ?", (composition, drink_id))
+    changed = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
+def update_drink_description(drink_id: int, description: str) -> bool:
+    conn = sqlite3.connect(_MENU_DB)
+    c = conn.cursor()
+    c.execute("UPDATE drinks SET description = ? WHERE id = ?", (description, drink_id))
+    changed = c.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+
 def get_all_dishes_for_admin() -> List[dict]:
     """Все блюда кухни с категорией — для панели загрузки фото."""
     conn = sqlite3.connect(_MENU_DB)

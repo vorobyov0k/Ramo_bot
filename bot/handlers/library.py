@@ -790,19 +790,18 @@ async def drink_detail(callback: types.CallbackQuery):
     if drink["is_healthy"]:       tags.append("💪 ПП")
 
     text = f"🍷 <b>{drink['name']}</b>\n"
-    if drink["price"]:
-        text += f"💰 {drink['price']} ₽"
-        if drink.get("volume_ml"):
-            text += f"  |  🥃 {drink['volume_ml']} мл"
-        text += "\n"
-    elif drink.get("volume_ml"):
-        text += f"🥃 {drink['volume_ml']} мл\n"
-    if tags:
-        text += "🏷 " + "  ".join(tags) + "\n"
     if drink["description"]:
-        text += f"\n{drink['description']}"
+        text += f"\n{drink['description']}\n"
     if drink.get("composition"):
-        text += f"\n<i>{drink['composition']}</i>"
+        text += f"\n<pre>{drink['composition']}</pre>"
+    if drink["price"]:
+        text += f"\n💰 <b>{drink['price']} ₽</b>"
+        if drink.get("volume_ml"):
+            text += f"  ·  🥃 {drink['volume_ml']} мл"
+    elif drink.get("volume_ml"):
+        text += f"\n🥃 {drink['volume_ml']} мл"
+    if tags:
+        text += "\n🏷 " + "  ".join(tags)
 
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="← К категории", callback_data=f"lib:bar_cat:{drink['category_name']}")],
