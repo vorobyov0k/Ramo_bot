@@ -23,7 +23,7 @@ class User(Base):
 
     telegram_id = Column(Integer, primary_key=True)
     full_name = Column(String(255))
-    role = Column(String(50))  # admin, manager, barman, waiter, security, newcomer
+    role = Column(String(50))  # admin, manager, barman, waiter, security, newcomer, newbie
     requested_role = Column(String(50), nullable=True)
     department = Column(String(50))
     phone = Column(String(50), nullable=True)

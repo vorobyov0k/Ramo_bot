@@ -197,18 +197,18 @@ async def admin_approve(callback: types.CallbackQuery):
         await callback.answer("❌ Пользователь не найден", show_alert=True)
         return
 
-    role = forced_role or user.requested_role or "barman"
-    await approve_user(user_id, role=role, actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
+    position_label = forced_role or user.requested_role or user.position or "barman"
+    await approve_user(user_id, role="newbie", actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
 
     await callback.message.edit_text(
         f"✅ <b>Заявка одобрена</b>\n\n"
         f"ФИО: <b>{user.full_name}</b>\n"
-        f"Должность: <b>{role}</b>"
+        f"Должность: <b>{position_label}</b>"
     )
 
     await callback.bot.send_message(
         chat_id=user_id,
-        text=f"🎉 <b>Доступ одобрен!</b>\n\nВаша должность: <b>{role}</b>\n\nНажмите /start"
+        text=f"🎉 <b>Доступ одобрен!</b>\n\nВаша должность: <b>{position_label}</b>\n\nНажмите /start"
     )
     await callback.answer("✅ Одобрено")
 

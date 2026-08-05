@@ -74,7 +74,10 @@ def _build_home_keyboard(position: str, has_active_shift: bool, has_onboarding: 
 
     buttons += [
         [
-            InlineKeyboardButton(text="📚 Библиотека",         callback_data="menu:library"),
+            InlineKeyboardButton(
+                text="🎓 Обучение" if role == "newbie" else "📚 Библиотека",
+                callback_data="menu:onboarding_hub" if role == "newbie" else "menu:library",
+            ),
             InlineKeyboardButton(text="📅 События",            callback_data="menu:events"),
         ],
         [

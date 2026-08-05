@@ -53,7 +53,7 @@ def get_dishes_by_category(category_name: str) -> List[dict]:
         """
         SELECT d.id, d.name, d.price,
                d.is_spicy, d.is_vegetarian, d.is_new, d.is_healthy,
-               d.description, d.photo_id
+               d.description, d.photo_id, d.composition
         FROM dishes d
         JOIN categories cat ON d.category_id = cat.id
         WHERE cat.name = ? AND cat.type = 'kitchen'
@@ -69,6 +69,7 @@ def get_dishes_by_category(category_name: str) -> List[dict]:
             "is_spicy": r[3], "is_vegetarian": r[4],
             "is_new": r[5], "is_healthy": r[6],
             "description": r[7], "photo_id": r[8],
+            "composition": r[9],
         }
         for r in rows
     ]
@@ -81,7 +82,7 @@ def get_dish_by_id(dish_id: int) -> Optional[dict]:
         """
         SELECT d.id, d.name, d.price,
                d.is_spicy, d.is_vegetarian, d.is_new, d.is_healthy,
-               d.description, d.photo_id, cat.name
+               d.description, d.photo_id, cat.name, d.composition
         FROM dishes d
         JOIN categories cat ON d.category_id = cat.id
         WHERE d.id = ?
@@ -98,6 +99,7 @@ def get_dish_by_id(dish_id: int) -> Optional[dict]:
         "is_new": r[5], "is_healthy": r[6],
         "description": r[7], "photo_id": r[8],
         "category_name": r[9],
+        "composition": r[10],
     }
 
 

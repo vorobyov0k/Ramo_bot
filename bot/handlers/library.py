@@ -10,6 +10,7 @@ from bot.utils.menu_db import (
     get_dishes_by_category, get_dish_by_id,
     get_drinks_by_category, get_drink_by_id,
 )
+from bot.utils.onboarding_content import NEWBIE_RULES_TEXT
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -86,6 +87,27 @@ async def library_menu(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="← Главное меню",             callback_data="menu:main")],
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:onboarding_hub")
+async def onboarding_hub(callback: types.CallbackQuery):
+    """Онбординг-меню для новичков."""
+    text = "🎓 <b>Обучение</b>\n\nВыберите раздел:"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🍴 Меню кухни", callback_data="lib:kitchen")],
+        [InlineKeyboardButton(text="🍷 Меню бара", callback_data="lib:bar")],
+        [InlineKeyboardButton(text="📋 Общие регламенты", callback_data="nb:rules")],
+        [InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")],
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "nb:rules")
+async def onboarding_rules(callback: types.CallbackQuery):
+    """Общие регламенты для новичков."""
+    await callback.message.edit_text(NEWBIE_RULES_TEXT, reply_markup=_back_btn("menu:onboarding_hub"), parse_mode="HTML")
     await callback.answer()
 
 
@@ -708,6 +730,8 @@ async def dish_detail(callback: types.CallbackQuery):
         text += "🏷 " + "  ".join(tags) + "\n"
     if dish["description"]:
         text += f"\n{dish['description']}"
+    if dish.get("composition"):
+        text += f"\n<pre>{dish['composition']}</pre>"
 
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="← К категории", callback_data=f"lib:kitchen_cat:{dish['category_name']}")],
@@ -841,19 +865,18 @@ async def drink_detail(callback: types.CallbackQuery):
     if drink["is_healthy"]:       tags.append("💪 ПП")
 
     text = f"🍷 <b>{drink['name']}</b>\n"
-    if drink["price"]:
-        text += f"💰 {drink['price']} ₽"
-        if drink.get("volume_ml"):
-            text += f"  |  🥃 {drink['volume_ml']} мл"
-        text += "\n"
-    elif drink.get("volume_ml"):
-        text += f"🥃 {drink['volume_ml']} мл\n"
-    if tags:
-        text += "🏷 " + "  ".join(tags) + "\n"
     if drink["description"]:
-        text += f"\n{drink['description']}"
+        text += f"\n{drink['description']}\n"
     if drink.get("composition"):
-        text += f"\n<i>{drink['composition']}</i>"
+        text += f"\n<pre>{drink['composition']}</pre>"
+    if drink["price"]:
+        text += f"\n💰 <b>{drink['price']} ₽</b>"
+        if drink.get("volume_ml"):
+            text += f"  ·  🥃 {drink['volume_ml']} мл"
+    elif drink.get("volume_ml"):
+        text += f"\n🥃 {drink['volume_ml']} мл"
+    if tags:
+        text += "\n🏷 " + "  ".join(tags)
 
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="← К категории", callback_data=f"lib:bar_cat:{drink['category_name']}")],
