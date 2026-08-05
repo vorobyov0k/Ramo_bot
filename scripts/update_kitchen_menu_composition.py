@@ -63,7 +63,7 @@ def main():
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT id, name, composition FROM dishes WHERE composition IS NOT NULL ORDER BY id")
+    cur.execute("SELECT id, name, composition FROM dishes ORDER BY id")
     current = {r[0]: {"name": r[1], "composition": r[2]} for r in cur.fetchall()}
     cur.execute("SELECT id FROM dishes")
     all_ids = {r[0] for r in cur.fetchall()}
