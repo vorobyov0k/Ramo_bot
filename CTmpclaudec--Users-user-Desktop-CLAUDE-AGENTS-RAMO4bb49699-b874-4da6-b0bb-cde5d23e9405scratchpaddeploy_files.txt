@@ -1,0 +1,8 @@
+bot/handlers/registration.py
+bot/handlers/menu.py
+bot/handlers/library.py
+bot/utils/db_connector.py
+bot/utils/positions.py
+bot/utils/onboarding_content.py
+bot/utils/menu_db.py
+data/menu.db

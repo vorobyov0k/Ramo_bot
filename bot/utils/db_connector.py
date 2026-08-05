@@ -23,7 +23,7 @@ class User(Base):
 
     telegram_id = Column(Integer, primary_key=True)
     full_name = Column(String(255))
-    role = Column(String(50))  # admin, manager, barman, waiter, security, newcomer
+    role = Column(String(50))  # admin, manager, barman, waiter, security, newcomer, newbie
     requested_role = Column(String(50), nullable=True)
     department = Column(String(50))
     phone = Column(String(50), nullable=True)
@@ -98,11 +98,12 @@ class Event(Base):
     __tablename__ = "events"
 
     event_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    event_type = Column(String(20))  # booking, announcement, holiday, birthday
+    event_type = Column(String(20))  # booking, announcement, holiday, birthday, work_event
     title = Column(String(255))
     description = Column(Text, nullable=True)
     event_date = Column(DateTime)
     meta = Column(JSON, default=dict)  # phone, guest_count, etc.
+    participants = Column(JSON, default=list)  # список telegram_id для work_event
     created_by = Column(Integer, ForeignKey("bot_users.telegram_id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
@@ -173,6 +174,7 @@ class Task(Base):
 
     assigned_to = Column(Integer, ForeignKey("bot_users.telegram_id"), nullable=True)
     assigned_to_name = Column(String(255), nullable=True)
+    assigned_role = Column(String(20), nullable=True)  # для назначения всем с определённой ролью
     department = Column(String(50), nullable=True)    # bar / restaurant / security / all
 
     deadline = Column(DateTime, nullable=True)
@@ -299,6 +301,10 @@ async def init_db():
             "ALTER TABLE onboarding_progress ADD COLUMN feedback_log JSON",
             "ALTER TABLE onboarding_progress ADD COLUMN decision VARCHAR(20)",
             "ALTER TABLE audit_logs ADD COLUMN archived BOOLEAN DEFAULT 0",
+            # events — участники рабочего события
+            "ALTER TABLE events ADD COLUMN participants JSON",
+            # tasks — назначение по роли
+            "ALTER TABLE tasks ADD COLUMN assigned_role VARCHAR(20)",
         ]:
             try:
                 await conn.execute(text(col_sql))
@@ -648,6 +654,7 @@ async def create_event(
     event_date: datetime,
     description: Optional[str] = None,
     meta: Optional[Dict] = None,
+    participants: Optional[List[int]] = None,
     created_by: Optional[int] = None,
 ) -> str:
     event_id = str(uuid.uuid4())
@@ -659,6 +666,7 @@ async def create_event(
             event_date=event_date,
             description=description,
             meta=meta or {},
+            participants=participants or [],
             created_by=created_by,
         )
         session.add(event)
@@ -833,6 +841,27 @@ async def update_user_position(telegram_id: int, new_position: str, actor_id: Op
         user.department = position_to_department(new_position)
         await session.commit()
     await log_action("user_position_changed", actor_id, actor_name, name, details=f"{old_position} → {new_position}")
+    return True
+
+
+async def assign_mentor(newbie_id: int, mentor_id: int, actor_id=None, actor_name=None) -> bool:
+    async with async_session() as session:
+        user = await session.get(User, newbie_id)
+        if not user:
+            return False
+        old_mentor, name = user.mentor_id, user.full_name
+        user.mentor_id = mentor_id
+        await session.commit()
+
+    progress = await get_active_onboarding(newbie_id)
+    if progress:
+        async with async_session() as session:
+            p = await session.get(OnboardingProgress, progress.progress_id)
+            if p:
+                p.mentor_id = mentor_id
+                await session.commit()
+
+    await log_action("mentor_assigned", actor_id, actor_name, name, details=f"{old_mentor} → {mentor_id}")
     return True
 
 
@@ -1073,6 +1102,7 @@ async def create_task(
     description: Optional[str] = None,
     assigned_to: Optional[int] = None,
     assigned_to_name: Optional[str] = None,
+    assigned_role: Optional[str] = None,
     department: Optional[str] = None,
     priority: str = "normal",
     deadline: Optional[datetime] = None,
@@ -1091,6 +1121,7 @@ async def create_task(
             created_by_name=created_by_name,
             assigned_to=assigned_to,
             assigned_to_name=assigned_to_name,
+            assigned_role=assigned_role,
             department=department,
             deadline=deadline,
             photo_urls=photo_urls or [],
@@ -1142,17 +1173,20 @@ async def get_tasks_for_worker(
     user_id: int,
     department: str,
     status: Optional[str] = None,
+    role: Optional[str] = None,
 ) -> List[Task]:
-    """Задачи для работника: назначены лично ИЛИ на его отдел."""
+    """Задачи для работника: назначены лично ИЛИ на его отдел ИЛИ на его роль."""
     from sqlalchemy import select, or_, and_
     async with async_session() as session:
-        query = select(Task).where(
-            or_(
-                Task.assigned_to == user_id,
-                and_(Task.assigned_to == None, Task.department == department),
-                and_(Task.assigned_to == None, Task.department == "all"),
-            )
-        )
+        conditions = [
+            Task.assigned_to == user_id,
+            and_(Task.assigned_to == None, Task.department == department),
+            and_(Task.assigned_to == None, Task.department == "all"),
+        ]
+        if role:
+            conditions.append(and_(Task.assigned_to == None, Task.assigned_role == role))
+
+        query = select(Task).where(or_(*conditions))
         if status and status != "overdue":
             query = query.where(Task.status == status)
         query = query.order_by(Task.created_at.desc())
@@ -1369,8 +1403,8 @@ async def get_today_events_count() -> int:
         return result.scalar() or 0
 
 
-async def get_today_open_tasks_count(user_id: int, department: Optional[str]) -> int:
-    """Кол-во открытых задач на пользователя (лично или по отделу)."""
+async def get_today_open_tasks_count(user_id: int, department: Optional[str], role: Optional[str] = None) -> int:
+    """Кол-во открытых задач на пользователя (лично, по отделу, или по роли)."""
     from sqlalchemy import select, func, or_, and_
     async with async_session() as session:
         conds = [
@@ -1379,6 +1413,8 @@ async def get_today_open_tasks_count(user_id: int, department: Optional[str]) ->
         ]
         if department:
             conds.append(and_(Task.assigned_to == None, Task.department == department))
+        if role:
+            conds.append(and_(Task.assigned_to == None, Task.assigned_role == role))
         result = await session.execute(
             select(func.count()).select_from(Task).where(
                 Task.status == "open",
@@ -1413,5 +1449,26 @@ async def get_active_workers(department=None) -> List[User]:
                 query = query.where(User.department.in_(department))
             else:
                 query = query.where(User.department == department)
+        result = await session.execute(query.order_by(User.full_name))
+        return list(result.scalars().all())
+
+
+async def get_assignable_users(creator_role: str, department: Optional[str] = None) -> List[User]:
+    """Получить пользователей, которым может быть назначена задача (в зависимости от роли создателя)."""
+    from sqlalchemy import select
+    async with async_session() as session:
+        query = select(User).where(User.status == "active")
+
+        if creator_role in ("owner", "pm"):
+            pass
+        elif creator_role == "admin":
+            query = query.where(User.role.notin_(["owner", "pm"]))
+            if department and department != "all":
+                query = query.where(User.department == department)
+        else:
+            query = query.where(User.role.notin_(["admin", "pm", "owner"]))
+            if department and department != "all":
+                query = query.where(User.department == department)
+
         result = await session.execute(query.order_by(User.full_name))
         return list(result.scalars().all())

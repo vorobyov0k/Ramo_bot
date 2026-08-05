@@ -13,8 +13,9 @@ from bot.utils.db_connector import (
     create_event,
     delete_event,
     accept_booking,
+    get_active_workers,
 )
-from bot.states.forms import EventAddBookingState, EventAddAnnouncementState
+from bot.states.forms import EventAddBookingState, EventAddAnnouncementState, EventAddWorkEventState
 from bot.utils.positions import MANAGER_ROLES
 
 router = Router()
@@ -64,12 +65,16 @@ async def events_menu(callback: types.CallbackQuery):
     buttons = [
         [InlineKeyboardButton(text="📋 Брони на сегодня/завтра", callback_data="events:bookings")],
         [InlineKeyboardButton(text="📢 Афиша мероприятий", callback_data="events:announcements")],
+        [InlineKeyboardButton(text="🎁 Акции", callback_data="events:promos")],
         [InlineKeyboardButton(text="🎉 Праздники & Дни рождения", callback_data="events:holidays_filter")],
     ]
     if role in _MANAGER_ROLES:
         buttons.append([
             InlineKeyboardButton(text="➕ Добавить бронь", callback_data="events:add_booking"),
             InlineKeyboardButton(text="📣 Добавить анонс", callback_data="events:add_announcement"),
+        ])
+        buttons.append([
+            InlineKeyboardButton(text="➕ Рабочее событие", callback_data="events:add_work_event"),
         ])
     buttons.append([InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")])
 
@@ -728,3 +733,186 @@ async def announcement_got_description(message: types.Message, state: FSMContext
         parse_mode="HTML",
         reply_markup=_back_btn("menu:events", "← К событиям"),
     )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Рабочие события
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "events:add_work_event")
+async def add_work_event_start(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user_by_telegram_id(callback.from_user.id)
+    if not user or user.role not in _MANAGER_ROLES:
+        await callback.answer("⛔ Только для менеджеров и администраторов", show_alert=True)
+        return
+    await callback.message.edit_text(
+        "📝 <b>Название рабочего события</b>\n\nВведите название:",
+        reply_markup=_back_btn("menu:events", "← Отмена"),
+    )
+    await state.set_state(EventAddWorkEventState.waiting_title)
+    await callback.answer()
+
+
+@router.message(EventAddWorkEventState.waiting_title)
+async def wet_got_title(message: types.Message, state: FSMContext):
+    title = message.text.strip()
+    if not title or len(title) > 200:
+        await message.answer("❌ Название должно быть от 1 до 200 символов")
+        return
+    await state.update_data(title=title)
+    await message.answer(
+        "📋 <b>Описание события</b>\n\nВведите описание (или - для пропуска):",
+        parse_mode="HTML",
+    )
+    await state.set_state(EventAddWorkEventState.waiting_description)
+
+
+@router.message(EventAddWorkEventState.waiting_description)
+async def wet_got_description(message: types.Message, state: FSMContext):
+    desc = message.text.strip()
+    if desc == "-":
+        desc = None
+    elif len(desc) > 1000:
+        await message.answer("❌ Описание не должно превышать 1000 символов")
+        return
+    await state.update_data(description=desc)
+    await message.answer(
+        "📅 <b>Дата и время</b>\n\nВведите в формате ДД.ММ ЧЧ:ММ\nПример: 15.08 14:30",
+        parse_mode="HTML",
+    )
+    await state.set_state(EventAddWorkEventState.waiting_date)
+
+
+@router.message(EventAddWorkEventState.waiting_date)
+async def wet_got_date(message: types.Message, state: FSMContext):
+    date_str = message.text.strip()
+    try:
+        event_date = datetime.strptime(date_str, "%d.%m %H:%M")
+        event_date = event_date.replace(year=datetime.now().year)
+        if event_date < datetime.now():
+            event_date = event_date.replace(year=datetime.now().year + 1)
+    except ValueError:
+        await message.answer("❌ Неправильный формат. Используйте ДД.ММ ЧЧ:ММ")
+        return
+
+    await state.update_data(event_date=event_date, selected_ids=[])
+
+    workers = await get_active_workers()
+    if not workers:
+        await message.answer("❌ Активных сотрудников не найдено")
+        return
+
+    from bot.utils.positions import get_position_display
+
+    buttons = []
+    for worker in workers:
+        pos_label = get_position_display(worker)
+        btn_text = f"⬜ {worker.full_name} ({pos_label})"
+        buttons.append([
+            InlineKeyboardButton(
+                text=btn_text,
+                callback_data=f"ewe:toggle:{worker.telegram_id}",
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="✅ Готово", callback_data="ewe:confirm"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:events"),
+    ])
+
+    await state.set_state(EventAddWorkEventState.waiting_participants)
+    await message.answer(
+        "👥 <b>Выберите участников</b>\n\nНажимайте на кнопки для добавления/удаления (☑️/⬜):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("ewe:toggle:"))
+async def ewe_toggle(callback: types.CallbackQuery, state: FSMContext):
+    user_id = int(callback.data[len("ewe:toggle:"):])
+    data = await state.get_data()
+    selected_ids = data.get("selected_ids", [])
+
+    if user_id in selected_ids:
+        selected_ids.remove(user_id)
+    else:
+        selected_ids.append(user_id)
+
+    await state.update_data(selected_ids=selected_ids)
+
+    workers = await get_active_workers()
+    from bot.utils.positions import get_position_display
+
+    buttons = []
+    for worker in workers:
+        is_selected = worker.telegram_id in selected_ids
+        icon = "☑️" if is_selected else "⬜"
+        pos_label = get_position_display(worker)
+        btn_text = f"{icon} {worker.full_name} ({pos_label})"
+        buttons.append([
+            InlineKeyboardButton(
+                text=btn_text,
+                callback_data=f"ewe:toggle:{worker.telegram_id}",
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="✅ Готово", callback_data="ewe:confirm"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:events"),
+    ])
+
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data == "ewe:confirm")
+async def ewe_confirm(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user_by_telegram_id(callback.from_user.id)
+    data = await state.get_data()
+
+    event_id = await create_event(
+        event_type="work_event",
+        title=data["title"],
+        event_date=data["event_date"],
+        description=data.get("description"),
+        participants=data.get("selected_ids", []),
+        created_by=callback.from_user.id,
+    )
+
+    selected_ids = data.get("selected_ids", [])
+    if selected_ids:
+        event_text = (
+            f"📅 <b>Новое рабочее событие</b>\n\n"
+            f"<b>{data['title']}</b>\n"
+            f"📍 {data['event_date'].strftime('%d.%m.%Y %H:%M')}\n"
+        )
+        if data.get("description"):
+            event_text += f"📝 {data['description']}\n"
+
+        for participant_id in selected_ids:
+            try:
+                await callback.bot.send_message(
+                    participant_id,
+                    event_text,
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                logger.warning(f"Ошибка отправки уведомления участнику {participant_id}: {e}")
+
+    await state.clear()
+    dt = data["event_date"]
+    await callback.message.edit_text(
+        f"✅ <b>Рабочее событие добавлено!</b>\n\n"
+        f"📌 {data['title']}\n"
+        f"📅 {dt.strftime('%d.%m.%Y %H:%M')}\n"
+        f"👥 Участников: {len(selected_ids)}",
+        reply_markup=_back_btn("menu:events", "← К событиям"),
+        parse_mode="HTML",
+    )
+    await callback.answer()

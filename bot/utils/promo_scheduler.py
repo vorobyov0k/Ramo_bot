@@ -7,7 +7,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import List
+from typing import List, Optional
 
 from aiogram import Bot
 
@@ -17,6 +17,7 @@ from bot.utils.db_connector import (
     get_upcoming_events,
     PromoConfig,
 )
+from bot.utils.task_reminders import get_current_weather
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ _EVENT_TYPE_LABELS = {
 }
 
 _sent_today: set = set()  # (date_str, time_str)
+_last_weather_temp: Optional[float] = None
 
 WEEKDAY_NAMES_RU = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
 MONTH_NAMES_RU = {
@@ -161,3 +163,46 @@ async def scheduler_loop(bot: Bot) -> None:
                 await do_shift_changeover_reminder(bot)
         except Exception as e:
             logger.error(f"Ошибка планировщика брифа/пересменки: {e}")
+
+
+async def do_weather_check(bot: Bot) -> None:
+    """Проверка погоды: рассылка при изменении температуры ≥1.5°C."""
+    global _last_weather_temp
+
+    weather = await get_current_weather()
+    if weather is None:
+        return
+
+    temp, precip = weather
+
+    if _last_weather_temp is not None and abs(temp - _last_weather_temp) >= 1.5:
+        users = await get_users_on_shift()
+        if not users:
+            _last_weather_temp = temp
+            return
+
+        text = (
+            f"🌡️ <b>Смена температуры</b>\n\n"
+            f"Было: {_last_weather_temp:.1f}°C\n"
+            f"Стало: {temp:.1f}°C\n\n"
+            f"Изменение на {abs(temp - _last_weather_temp):.1f}°C"
+        )
+
+        for user in users:
+            try:
+                await bot.send_message(user.telegram_id, text, parse_mode="HTML")
+            except Exception as e:
+                logger.warning(f"Погода: ошибка при отправке уведомления пользователю {user.telegram_id}: {e}")
+
+    _last_weather_temp = temp
+
+
+async def weather_loop(bot: Bot) -> None:
+    """Фоновая задача: проверка погоды каждые 5 минут."""
+    logger.info("✅ Планировщик погоды запущен (интервал 5 мин)")
+    while True:
+        try:
+            await asyncio.sleep(300)
+            await do_weather_check(bot)
+        except Exception as e:
+            logger.error(f"Ошибка планировщика погоды: {e}")

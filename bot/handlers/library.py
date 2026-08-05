@@ -5,11 +5,12 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bot.utils.cache_manager import get_cache_manager
 from bot.utils.db_connector import get_user_by_telegram_id
-from bot.utils.positions import MANAGER_ROLES
+from bot.utils.positions import MANAGER_ROLES, POSITION_MAP
 from bot.utils.menu_db import (
     get_dishes_by_category, get_dish_by_id,
     get_drinks_by_category, get_drink_by_id,
 )
+from bot.utils.onboarding_content import NEWBIE_RULES_TEXT
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -77,7 +78,6 @@ async def _edit_or_resend(message: types.Message, text: str, keyboard: InlineKey
 async def library_menu(callback: types.CallbackQuery):
     text = "📚 <b>Библиотека RAMO</b>\n\nВыберите раздел:"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Чек-листы смен",          callback_data="lib:checklists")],
         [InlineKeyboardButton(text="👔 Должности и обязанности",  callback_data="lib:roles")],
         [InlineKeyboardButton(text="📜 Регламенты",              callback_data="lib:regulations")],
         [InlineKeyboardButton(text="❓ FAQ",                     callback_data="lib:faq")],
@@ -87,6 +87,27 @@ async def library_menu(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="← Главное меню",             callback_data="menu:main")],
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:onboarding_hub")
+async def onboarding_hub(callback: types.CallbackQuery):
+    """Онбординг-меню для новичков."""
+    text = "🎓 <b>Обучение</b>\n\nВыберите раздел:"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🍴 Меню кухни", callback_data="lib:kitchen")],
+        [InlineKeyboardButton(text="🍷 Меню бара", callback_data="lib:bar")],
+        [InlineKeyboardButton(text="📋 Общие регламенты", callback_data="nb:rules")],
+        [InlineKeyboardButton(text="← Главное меню", callback_data="menu:main")],
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "nb:rules")
+async def onboarding_rules(callback: types.CallbackQuery):
+    """Общие регламенты для новичков."""
+    await callback.message.edit_text(NEWBIE_RULES_TEXT, reply_markup=_back_btn("menu:onboarding_hub"), parse_mode="HTML")
     await callback.answer()
 
 
@@ -144,10 +165,54 @@ async def checklists_menu(callback: types.CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("lib:checklists_role:"))
+async def checklists_by_role(callback: types.CallbackQuery):
+    """Список чек-листов, привязанных к должности."""
+    role_key = callback.data[len("lib:checklists_role:"):]
+
+    if role_key not in POSITION_MAP:
+        await callback.answer("Должность не найдена", show_alert=True)
+        return
+
+    checklist_keys = POSITION_MAP[role_key][2]
+    if not checklist_keys:
+        await callback.answer("Чек-листы отсутствуют", show_alert=True)
+        return
+
+    cache = get_cache_manager()
+    checklists_data = cache.get("checklists") or {}
+
+    rows = []
+    for key in checklist_keys:
+        if key in {k for k, _ in _ALL_CHECKLISTS}:
+            label = next((l for k, l in _ALL_CHECKLISTS if k == key), key)
+        else:
+            label = checklists_data.get(key, {}).get("title", key)
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"lib:cl:{role_key}:{key}")])
+
+    rows.append(_back_row(f"lib:role_{role_key}", "← К должности"))
+
+    text = f"✅ <b>Чек-листы: {POSITION_MAP[role_key][0]}</b>\n\nВыберите список:"
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("lib:cl:"))
 async def checklist_view(callback: types.CallbackQuery):
-    """Универсальный просмотр любого чеклиста по ключу."""
-    key = callback.data[len("lib:cl:"):]
+    """Универсальный просмотр любого чеклиста по ключу или роли."""
+    data = callback.data[len("lib:cl:"):]
+
+    if ":" in data:
+        role_key, key = data.split(":", 1)
+        back_target = f"lib:checklists_role:{role_key}"
+    else:
+        key = data
+        role_key = None
+        back_target = "lib:checklists"
     cache = get_cache_manager()
     cl_data = cache.get("checklists")
     if not cl_data or key not in cl_data:
@@ -176,9 +241,10 @@ async def checklist_view(callback: types.CallbackQuery):
     if len(text) > 4000:
         text = text[:4000] + "\n<i>…</i>"
 
+    back_label = "← К должности" if role_key else "← К чек-листам"
     await callback.message.edit_text(
         text,
-        reply_markup=_back_btn("lib:checklists", "← К чек-листам"),
+        reply_markup=_back_btn(back_target, back_label),
         parse_mode="HTML",
     )
     await callback.answer()
@@ -279,6 +345,14 @@ async def role_detail(callback: types.CallbackQuery):
             row = []
     if row:
         buttons.append(row)
+
+    # Кнопка чек-листов по должности (если есть)
+    checklists_for_role = POSITION_MAP.get(role_key, ("", "", []))[2]
+    if checklists_for_role:
+        buttons.append([InlineKeyboardButton(
+            text="✅ Чек-листы",
+            callback_data=f"lib:checklists_role:{role_key}",
+        )])
 
     # Кнопка инструкции по смене (если есть)
     ji = cache.get("job_instructions") or {}
@@ -549,23 +623,22 @@ async def faq_item_handler(callback: types.CallbackQuery):
 
 @router.callback_query(F.data == "lib:contacts")
 async def contacts_handler(callback: types.CallbackQuery):
-    cache = get_cache_manager()
-    contacts = cache.get("contacts")
-    if not contacts:
-        await callback.answer("📭 Данные не найдены", show_alert=True)
-        return
-
-    lines = ["☎️ <b>Контакты RAMO</b>\n"]
-    for item in contacts.get("items", []):
-        lines.append(f"{item['name']}")
-        lines.append(f"<code>{item['phone']}</code>  <i>({item['role']})</i>")
-        lines.append("")
-
-    if note := contacts.get("note"):
-        lines.append(f"ℹ️ <i>{note}</i>")
+    text = (
+        "<b>Контактная информация</b>\n"
+        "📍 Адрес: г. Воронеж, проспект Революции, д. 44 (Центральный район, бывшая гостиница Самофалова)\n"
+        "📞 Телефон: +7 (909) 215-95-22\n"
+        "📱 Telegram: @ramo_voronezh\n"
+        "📷 Instagram: @mmm.ramo\n\n"
+        "<b>Режим работы</b>\n"
+        "Пн–Чт: 10:00–00:00\n"
+        "Пт–Сб: 10:00–02:00\n"
+        "Вс: 10:00–00:00\n\n"
+        "💡 <i>Философия бренда:</i> «Готовим с любовью. Иногда — с характером».\n"
+        "🦆 <i>УТП:</i> Городское кафе в центре Воронежа, где каждый гость чувствует себя «своим»."
+    )
 
     await callback.message.edit_text(
-        "\n".join(lines),
+        text,
         reply_markup=_back_btn(),
         parse_mode="HTML",
     )
@@ -657,6 +730,8 @@ async def dish_detail(callback: types.CallbackQuery):
         text += "🏷 " + "  ".join(tags) + "\n"
     if dish["description"]:
         text += f"\n{dish['description']}"
+    if dish.get("composition"):
+        text += f"\n<pre>{dish['composition']}</pre>"
 
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="← К категории", callback_data=f"lib:kitchen_cat:{dish['category_name']}")],

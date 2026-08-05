@@ -83,6 +83,14 @@ class EventAddAnnouncementState(StatesGroup):
     waiting_description = State()
 
 
+class EventAddWorkEventState(StatesGroup):
+    """FSM для добавления рабочего события."""
+    waiting_title = State()
+    waiting_description = State()
+    waiting_date = State()
+    waiting_participants = State()
+
+
 class PromoEditState(StatesGroup):
     """FSM для редактирования описания акции."""
     waiting_description = State()

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Статический контент системы онбординга RAMO.
 Источник: onboarding_bartenders_waiters.md, onboarding_manager_checklist.md,
 onboarding_incidents_and_integration.md, onboarding_quick_guides.md

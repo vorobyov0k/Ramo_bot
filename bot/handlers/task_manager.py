@@ -32,6 +32,7 @@ from bot.utils.db_connector import (
     complete_task_db,
     reassign_task_db,
     cancel_task_db,
+    get_assignable_users,
     delete_task_db,
     add_task_comment_db,
     update_task_priority,
@@ -322,27 +323,32 @@ async def tc_got_title(message: types.Message, state: FSMContext):
 
 @router.callback_query(F.data == "tmc:skip_desc", TaskCreateState.waiting_description)
 async def tc_skip_desc(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user_by_telegram_id(callback.from_user.id)
     await state.update_data(description=None)
-    await _ask_assignee(callback.message, state, edit=True)
+    await _ask_assignee(callback.message, state, edit=True, user_role=user.role if user else "user")
     await callback.answer()
 
 
 @router.message(TaskCreateState.waiting_description)
 async def tc_got_desc(message: types.Message, state: FSMContext):
+    user = await get_user_by_telegram_id(message.from_user.id)
     await state.update_data(description=message.text.strip() if message.text else None)
-    await _ask_assignee(message, state, edit=False)
+    await _ask_assignee(message, state, edit=False, user_role=user.role if user else "user")
 
 
-async def _ask_assignee(message_or_obj, state: FSMContext, edit: bool = False):
+async def _ask_assignee(message_or_obj, state: FSMContext, edit: bool = False, user_role: str = "user"):
     await state.set_state(TaskCreateState.waiting_dept)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    kb_items = [
         [InlineKeyboardButton(text="🍸 Бар",         callback_data="tmc:dept:bar"),
          InlineKeyboardButton(text="🍽 Зал",          callback_data="tmc:dept:restaurant")],
         [InlineKeyboardButton(text="🛡 Охрана",       callback_data="tmc:dept:security"),
          InlineKeyboardButton(text="🌐 Все отделы",   callback_data="tmc:dept:all")],
         [InlineKeyboardButton(text="👤 Конкретный сотрудник", callback_data="tmc:dept:pick_user")],
-        [InlineKeyboardButton(text="✖ Отмена",        callback_data="tmc:cancel")],
-    ])
+    ]
+    if user_role in ("owner", "pm"):
+        kb_items.append([InlineKeyboardButton(text="📢 Всем админам", callback_data="tmc:all_admins")])
+    kb_items.append([InlineKeyboardButton(text="✖ Отмена",        callback_data="tmc:cancel")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_items)
     text = "👥 <b>Шаг 3/6.</b> Кому назначить задачу?"
     if edit:
         await message_or_obj.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -355,10 +361,10 @@ async def tc_got_dept(callback: types.CallbackQuery, state: FSMContext):
     dept_key = callback.data[len("tmc:dept:"):]
 
     if dept_key == "pick_user":
-        # Показываем список всех активных работников
-        workers = await get_active_workers()
+        user = await get_user_by_telegram_id(callback.from_user.id)
+        workers = await get_assignable_users(user.role if user else "user")
         if not workers:
-            await callback.answer("Нет активных сотрудников", show_alert=True)
+            await callback.answer("Нет доступных сотрудников", show_alert=True)
             return
         rows = []
         for w in workers:
@@ -378,7 +384,7 @@ async def tc_got_dept(callback: types.CallbackQuery, state: FSMContext):
         return
 
     # Назначение на отдел
-    await state.update_data(department=dept_key, assigned_to=None, assigned_to_name=None)
+    await state.update_data(department=dept_key, assigned_to=None, assigned_to_name=None, assigned_role=None)
     await _ask_priority(callback.message, state, edit=True)
     await callback.answer()
 
@@ -393,7 +399,24 @@ async def tc_got_user(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(
         assigned_to=worker.telegram_id,
         assigned_to_name=worker.full_name,
+        assigned_role=None,
         department=worker.department,
+    )
+    await _ask_priority(callback.message, state, edit=True)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "tmc:all_admins", TaskCreateState.waiting_dept)
+async def tc_all_admins(callback: types.CallbackQuery, state: FSMContext):
+    user = await get_user_by_telegram_id(callback.from_user.id)
+    if not user or user.role not in ("owner", "pm"):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+    await state.update_data(
+        assigned_to=None,
+        assigned_to_name="Все админы",
+        assigned_role="admin",
+        department=None,
     )
     await _ask_priority(callback.message, state, edit=True)
     await callback.answer()
@@ -537,6 +560,7 @@ async def tc_confirm_create(callback: types.CallbackQuery, state: FSMContext, bo
         description=data.get("description"),
         assigned_to=data.get("assigned_to"),
         assigned_to_name=data.get("assigned_to_name"),
+        assigned_role=data.get("assigned_role"),
         department=data.get("department"),
         priority=data.get("priority", "normal"),
         deadline=data.get("deadline_dt"),
@@ -724,7 +748,9 @@ async def tm_task_detail(callback: types.CallbackQuery, task_id: str = None):
         await callback.answer("Задача не найдена", show_alert=True)
         return
 
-    is_assignee = task.assigned_to == user.telegram_id
+    is_assignee = task.assigned_to == user.telegram_id or (
+        task.assigned_to is None and task.assigned_role == user.role
+    )
 
     es = _eff_status(task)
     icon = _status_icon(es)
@@ -1128,7 +1154,7 @@ async def mt_dashboard(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    tasks = await get_tasks_for_worker(user.telegram_id, user.department or "")
+    tasks = await get_tasks_for_worker(user.telegram_id, user.department or "", role=user.role)
     open_t    = [t for t in tasks if _eff_status(t) == "open"]
     overdue_t = [t for t in tasks if _eff_status(t) == "overdue"]
     done_t    = [t for t in tasks if t.status == "done"
@@ -1170,6 +1196,7 @@ async def mt_task_list(callback: types.CallbackQuery):
         user.telegram_id,
         user.department or "",
         status=None if status in ("all", "overdue") else status,
+        role=user.role,
     )
     if status == "overdue":
         tasks = [t for t in raw if _eff_status(t) == "overdue"]
@@ -1529,7 +1556,7 @@ async def transfer_open_tasks_on_shift_close(user_id: int, bot: Bot) -> int:
     if not user:
         return 0
 
-    open_tasks = await get_tasks_for_worker(user_id, user.department or "", status="open")
+    open_tasks = await get_tasks_for_worker(user_id, user.department or "", status="open", role=user.role)
     if not open_tasks:
         return 0
 

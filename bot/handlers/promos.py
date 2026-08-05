@@ -75,7 +75,7 @@ async def _promos_text(user_id: int) -> tuple[str, InlineKeyboardMarkup]:
     return text, InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-@router.callback_query(F.data == "menu:promos")
+@router.callback_query(F.data.in_({"menu:promos", "events:promos"}))
 async def promos_today(callback: types.CallbackQuery):
     text, kb = await _promos_text(callback.from_user.id)
     await safe_edit(callback, text, kb)

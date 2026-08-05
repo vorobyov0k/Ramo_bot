@@ -42,6 +42,9 @@ async def on_startup(bot: Bot):
     asyncio.create_task(promo_scheduler.scheduler_loop(bot))
     logger.info("✅ Планировщик брифа и пересменки запущен")
 
+    asyncio.create_task(promo_scheduler.weather_loop(bot))
+    logger.info("✅ Планировщик погоды запущен")
+
     asyncio.create_task(onboarding_scheduler.scheduler_loop(bot))
     logger.info("✅ Планировщик онбординга запущен")
 
