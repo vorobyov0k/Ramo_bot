@@ -326,16 +326,31 @@ async def admin_user_detail(callback: types.CallbackQuery, user_id: int = None):
         f"📅 Регистрация: {reg_date}"
     )
 
+    if user.role == "newbie":
+        if user.mentor_id:
+            mentor = await get_user_by_telegram_id(user.mentor_id)
+            mentor_label = mentor.full_name if mentor else f"ID {user.mentor_id}"
+            text += f"\n👨‍🏫 Наставник: <b>{mentor_label}</b>"
+        else:
+            text += "\n👨‍🏫 Наставник: не назначен"
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✏️ Изменить роль",     callback_data=f"admin:user_role:{user_id}"),
             InlineKeyboardButton(text="✏️ Назначить должность", callback_data=f"admin:user_pos:{user_id}"),
         ],
         [InlineKeyboardButton(text="✏️ Изменить имя", callback_data=f"admin:user_name:{user_id}")],
+    ])
+
+    if user.role == "newbie":
+        mentor_btn_text = "🎓 Сменить наставника" if user.mentor_id else "🎓 Назначить наставника"
+        keyboard.inline_keyboard.append([InlineKeyboardButton(text=mentor_btn_text, callback_data=f"admin:user_mentor:{user_id}")])
+
+    keyboard.inline_keyboard += [
         [InlineKeyboardButton(text="🚫 Заблокировать", callback_data=f"admin:user_deactivate:{user_id}")],
         [InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"admin:user_delete:{user_id}")],
         _back_row("admin:users", "← К списку"),
-    ])
+    ]
 
     await safe_edit(callback, text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
@@ -534,6 +549,104 @@ async def admin_user_role_set(callback: types.CallbackQuery, bot: Bot):
 
     # Возврат к карточке с обновлёнными данными
     await admin_user_detail(callback, user_id)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Назначить наставника стажёру
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("admin:user_mentor:"))
+async def admin_user_mentor_select(callback: types.CallbackQuery):
+    try:
+        newbie_id = int(callback.data.split(":")[2])
+    except (IndexError, ValueError):
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    newbie = await get_user_by_telegram_id(newbie_id)
+    name = newbie.full_name if newbie else str(newbie_id)
+
+    from bot.utils.db_connector import get_active_workers
+    candidates = await get_active_workers()
+    mentors = [u for u in candidates if u.role == "user" and u.telegram_id != newbie_id]
+
+    if not mentors:
+        await callback.answer("Нет доступных наставников", show_alert=True)
+        return
+
+    buttons = [
+        [InlineKeyboardButton(text=f"{u.full_name} ({get_position_display(u)})", callback_data=f"admin:mentor_confirm:{newbie_id}:{u.telegram_id}")]
+        for u in mentors
+    ]
+    buttons.append(_back_row(f"admin:user:{newbie_id}", "✖ Отмена"))
+
+    await safe_edit(callback,
+        f"🎓 <b>Назначить наставника</b>\n\n"
+        f"Стажёр: <b>{name}</b>\n\n"
+        f"Выберите наставника:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:mentor_confirm:"))
+async def admin_mentor_confirm(callback: types.CallbackQuery):
+    parts = callback.data.split(":")
+    try:
+        newbie_id = int(parts[2])
+        mentor_id = int(parts[3])
+    except (IndexError, ValueError):
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    newbie = await get_user_by_telegram_id(newbie_id)
+    mentor = await get_user_by_telegram_id(mentor_id)
+    newbie_name = newbie.full_name if newbie else str(newbie_id)
+    mentor_name = mentor.full_name if mentor else str(mentor_id)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"admin:mentor_set:{newbie_id}:{mentor_id}"),
+            InlineKeyboardButton(text="✖ Отмена",       callback_data=f"admin:user_mentor:{newbie_id}"),
+        ],
+    ])
+    await safe_edit(callback,
+        f"❓ Назначить <b>{mentor_name}</b> наставником для <b>{newbie_name}</b>?",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:mentor_set:"))
+async def admin_mentor_set(callback: types.CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    try:
+        newbie_id = int(parts[2])
+        mentor_id = int(parts[3])
+    except (IndexError, ValueError):
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    from bot.utils.db_connector import assign_mentor
+    ok = await assign_mentor(newbie_id, mentor_id, actor_id=callback.from_user.id, actor_name=callback.from_user.full_name)
+    if ok:
+        await callback.answer("✅ Наставник назначен", show_alert=True)
+        newbie = await get_user_by_telegram_id(newbie_id)
+        mentor = await get_user_by_telegram_id(mentor_id)
+        for target_id, text in (
+            (newbie_id, f"🎓 <b>Твой наставник:</b> {mentor.full_name if mentor else '—'}"),
+            (mentor_id, f"🎓 <b>Тебе назначен стажёр:</b> {newbie.full_name if newbie else '—'}"),
+        ):
+            try:
+                await bot.send_message(target_id, text, parse_mode="HTML")
+            except Exception:
+                pass
+    else:
+        await callback.answer("❌ Ошибка при сохранении", show_alert=True)
+
+    await admin_user_detail(callback, newbie_id)
 
 
 # ────────────────────────────────────────────────────────────────────────────

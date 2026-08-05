@@ -844,6 +844,27 @@ async def update_user_position(telegram_id: int, new_position: str, actor_id: Op
     return True
 
 
+async def assign_mentor(newbie_id: int, mentor_id: int, actor_id=None, actor_name=None) -> bool:
+    async with async_session() as session:
+        user = await session.get(User, newbie_id)
+        if not user:
+            return False
+        old_mentor, name = user.mentor_id, user.full_name
+        user.mentor_id = mentor_id
+        await session.commit()
+
+    progress = await get_active_onboarding(newbie_id)
+    if progress:
+        async with async_session() as session:
+            p = await session.get(OnboardingProgress, progress.progress_id)
+            if p:
+                p.mentor_id = mentor_id
+                await session.commit()
+
+    await log_action("mentor_assigned", actor_id, actor_name, name, details=f"{old_mentor} → {mentor_id}")
+    return True
+
+
 async def deactivate_user(telegram_id: int) -> bool:
     async with async_session() as session:
         user = await session.get(User, telegram_id)
