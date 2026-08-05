@@ -1,0 +1,19 @@
+[Unit]
+Description=RAMO Telegram Bot Service
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ramo_bot
+Environment="PATH=/opt/ramo_bot/venv/bin"
+ExecStart=/opt/ramo_bot/venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/opt/ramo_bot/bot.log
+StandardError=append:/opt/ramo_bot/bot.log
+
+[Install]
+WantedBy=multi-user.target
